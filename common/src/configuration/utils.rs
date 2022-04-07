@@ -1,8 +1,10 @@
+// Copyright 2022 The Tari Project
+// SPDX-License-Identifier: BSD-3-Clause
+
 use std::{fs, fs::File, io::Write, path::Path};
 
 use config::Config;
 use log::{debug, info};
-use multiaddr::{Multiaddr, Protocol};
 
 use crate::{
     configuration::bootstrap::ApplicationType,
@@ -82,6 +84,8 @@ pub fn default_config(bootstrap: &ConfigBootstrap) -> Config {
     cfg.set_default("common.buffer_rate_limit_console_wallet", 1_000)
         .unwrap();
     cfg.set_default("common.dedup_cache_capacity", 2_500).unwrap();
+    cfg.set_default("common.dht_minimum_desired_tcpv4_node_ratio", 0.0f64)
+        .unwrap();
     cfg.set_default("common.fetch_blocks_timeout", 150).unwrap();
     cfg.set_default("common.fetch_utxos_timeout", 600).unwrap();
     cfg.set_default("common.service_request_timeout", 180).unwrap();
@@ -458,26 +462,4 @@ fn set_transport_defaults(cfg: &mut Config) -> Result<(), config::ConfigError> {
         cfg.set_default(&format!("{}.dibbler.socks5_auth", app), "none")?;
     }
     Ok(())
-}
-
-pub fn get_local_ip() -> Option<Multiaddr> {
-    use std::net::IpAddr;
-
-    get_if_addrs::get_if_addrs().ok().and_then(|if_addrs| {
-        if_addrs
-            .into_iter()
-            .find(|if_addr| !if_addr.is_loopback())
-            .map(|if_addr| {
-                let mut addr = Multiaddr::empty();
-                match if_addr.ip() {
-                    IpAddr::V4(ip) => {
-                        addr.push(Protocol::Ip4(ip));
-                    },
-                    IpAddr::V6(ip) => {
-                        addr.push(Protocol::Ip6(ip));
-                    },
-                }
-                addr
-            })
-    })
 }

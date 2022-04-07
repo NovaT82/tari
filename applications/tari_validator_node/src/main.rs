@@ -21,11 +21,13 @@
 // USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #![allow(clippy::too_many_arguments)]
+mod asset;
 mod cmd_args;
 mod comms;
 mod dan_node;
 mod default_service_specification;
 mod grpc;
+mod monitoring;
 mod p2p;
 
 use std::{
@@ -64,7 +66,9 @@ use crate::{
 const LOG_TARGET: &str = "tari::validator_node::app";
 
 fn main() {
+    // Uncomment to enable tokio tracing via tokio-console
     // console_subscriber::init();
+
     if let Err(err) = main_inner() {
         let exit_code = err.exit_code;
         eprintln!("{:?}", err);
@@ -95,12 +99,12 @@ async fn run_node(config: GlobalConfig, create_id: bool) -> Result<(), ExitError
     let validator_node_config = config
         .validator_node
         .as_ref()
-        .ok_or_else(|| ExitError::new(ExitCode::ConfigError, "validator_node configuration not found"))?;
+        .ok_or_else(|| ExitError::new(ExitCode::ConfigError, &"validator_node configuration not found"))?;
 
-    fs::create_dir_all(&config.comms_peer_db_path).map_err(|err| ExitError::new(ExitCode::ConfigError, err))?;
+    fs::create_dir_all(&config.comms_peer_db_path).map_err(|err| ExitError::new(ExitCode::ConfigError, &err))?;
     let node_identity = setup_node_identity(
         &config.base_node_identity_file,
-        &config.comms_public_address,
+        config.comms_public_address.as_ref(),
         create_id,
         PeerFeatures::NONE,
     )?;
@@ -163,7 +167,7 @@ fn build_runtime() -> Result<Runtime, ExitError> {
     builder
         .enable_all()
         .build()
-        .map_err(|e| ExitError::new(ExitCode::UnknownError, e))
+        .map_err(|e| ExitError::new(ExitCode::UnknownError, &e))
 }
 
 async fn run_dan_node(

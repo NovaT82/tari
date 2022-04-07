@@ -24,7 +24,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use rand::{rngs::OsRng, Rng, RngCore};
 use tari_common_types::{
     transaction::TxId,
-    types::{PrivateKey, PublicKey},
+    types::{ComSignature, PrivateKey, PublicKey},
 };
 use tari_comms::{
     peer_manager::{NodeIdentity, PeerFeatures},
@@ -41,21 +41,21 @@ use tari_core::{
         fee::Fee,
         tari_amount::{uT, MicroTari},
         test_helpers::{create_unblinded_output, TestParams as TestParamsHelpers},
-        transaction_components::{OutputFeatures, OutputFlags},
-        transaction_protocol::sender::TransactionSenderMessage,
+        transaction_components::{OutputFeatures, OutputFlags, TransactionOutput, UnblindedOutput},
+        transaction_protocol::{sender::TransactionSenderMessage, RewindData},
         weight::TransactionWeight,
         CryptoFactories,
         SenderTransactionProtocol,
     },
 };
 use tari_crypto::{
+    commitment::HomomorphicCommitmentFactory,
     common::Blake256,
-    inputs,
     keys::{PublicKey as PublicKeyTrait, SecretKey},
-    script,
-    script::TariScript,
+    range_proof::REWIND_USER_MESSAGE_LENGTH,
 };
 use tari_key_manager::{cipher_seed::CipherSeed, mnemonic::Mnemonic};
+use tari_script::{inputs, script, TariScript};
 use tari_service_framework::reply_channel;
 use tari_shutdown::Shutdown;
 use tari_utilities::Hashable;
@@ -71,12 +71,15 @@ use tari_wallet::{
             sqlite_db::KeyManagerSqliteDatabase,
         },
         KeyManagerHandle,
+        KeyManagerInterface,
         KeyManagerMock,
+        KeyManagerServiceError,
     },
     output_manager_service::{
         config::OutputManagerServiceConfig,
         error::{OutputManagerError, OutputManagerStorageError},
         handle::{OutputManagerEvent, OutputManagerHandle},
+        resources::OutputManagerKeyManagerBranch,
         service::OutputManagerService,
         storage::{
             database::{OutputManagerBackend, OutputManagerDatabase},
@@ -117,7 +120,8 @@ struct TestOmsService<U> {
     pub node_id: Arc<NodeIdentity>,
     pub base_node_wallet_rpc_mock_state: BaseNodeWalletRpcMockState,
     pub node_event: broadcast::Sender<Arc<BaseNodeEvent>>,
-    pub _key_management_handle: KeyManagerHandle<U>,
+    pub key_manager_handler: KeyManagerHandle<U>,
+    pub rewind_data: RewindData,
 }
 
 #[allow(clippy::type_complexity)]
@@ -222,6 +226,25 @@ async fn setup_output_manager_service<T: OutputManagerBackend + 'static, U: KeyM
     .unwrap();
     let output_manager_service_handle = OutputManagerHandle::new(oms_request_sender, oms_event_publisher);
 
+    let rewind_key = key_manager
+        .get_key_at_index(OutputManagerKeyManagerBranch::RecoveryViewOnly.get_branch_key(), 0)
+        .await
+        .unwrap();
+    let rewind_blinding_key = key_manager
+        .get_key_at_index(OutputManagerKeyManagerBranch::RecoveryBlinding.get_branch_key(), 0)
+        .await
+        .unwrap();
+    let recovery_byte_key = key_manager
+        .get_key_at_index(OutputManagerKeyManagerBranch::RecoveryByte.get_branch_key(), 0)
+        .await
+        .unwrap();
+    let rewind_data = RewindData {
+        rewind_key,
+        rewind_blinding_key,
+        proof_message: [0u8; REWIND_USER_MESSAGE_LENGTH],
+        recovery_byte_key,
+    };
+
     task::spawn(async move { output_manager_service.start().await.unwrap() });
 
     TestOmsService {
@@ -233,7 +256,8 @@ async fn setup_output_manager_service<T: OutputManagerBackend + 'static, U: KeyM
         node_id: server_node_identity,
         base_node_wallet_rpc_mock_state: rpc_service_state,
         node_event: event_publisher_bns,
-        _key_management_handle: key_manager,
+        key_manager_handler: key_manager,
+        rewind_data,
     }
 }
 
@@ -609,7 +633,7 @@ async fn test_utxo_selection_with_chain_metadata() {
     // test that utxos with the lowest 2 maturities were encumbered
     let utxos = oms.get_unspent_outputs().await.unwrap();
     assert_eq!(utxos.len(), 7);
-    for utxo in utxos.iter() {
+    for utxo in &utxos {
         assert_ne!(utxo.features.maturity, 1);
         assert_ne!(utxo.value, amount);
         assert_ne!(utxo.features.maturity, 2);
@@ -636,7 +660,7 @@ async fn test_utxo_selection_with_chain_metadata() {
     // test that utxos with the highest spendable 2 maturities were encumbered
     let utxos = oms.get_unspent_outputs().await.unwrap();
     assert_eq!(utxos.len(), 5);
-    for utxo in utxos.iter() {
+    for utxo in &utxos {
         assert_ne!(utxo.features.maturity, 4);
         assert_ne!(utxo.value, 4 * amount);
         assert_ne!(utxo.features.maturity, 5);
@@ -772,7 +796,7 @@ async fn send_no_change() {
             create_unblinded_output(
                 script!(Nop),
                 OutputFeatures::default(),
-                TestParamsHelpers::new(),
+                &TestParamsHelpers::new(),
                 MicroTari::from(value1),
             ),
             None,
@@ -785,7 +809,7 @@ async fn send_no_change() {
             create_unblinded_output(
                 script!(Nop),
                 OutputFeatures::default(),
-                TestParamsHelpers::new(),
+                &TestParamsHelpers::new(),
                 MicroTari::from(value2),
             ),
             None,
@@ -836,7 +860,7 @@ async fn send_not_enough_for_change() {
             create_unblinded_output(
                 TariScript::default(),
                 OutputFeatures::default(),
-                TestParamsHelpers::new(),
+                &TestParamsHelpers::new(),
                 value1,
             ),
             None,
@@ -849,7 +873,7 @@ async fn send_not_enough_for_change() {
             create_unblinded_output(
                 TariScript::default(),
                 OutputFeatures::default(),
-                TestParamsHelpers::new(),
+                &TestParamsHelpers::new(),
                 value2,
             ),
             None,
@@ -1027,7 +1051,7 @@ async fn test_get_balance() {
 }
 
 #[tokio::test]
-async fn sending_transaction_with_short_term_clear() {
+async fn sending_transaction_persisted_while_offline() {
     let factories = CryptoFactories::default();
 
     let (connection, _tempdir) = get_temp_sqlite_database_connection();
@@ -1036,15 +1060,18 @@ async fn sending_transaction_with_short_term_clear() {
 
     let mut oms = setup_output_manager_service(backend.clone(), ks_backend.clone(), true).await;
 
-    let available_balance = 10_000 * uT;
-    let (_ti, uo) = make_input(&mut OsRng.clone(), available_balance, &factories.commitment, None).await;
+    let available_balance = 20_000 * uT;
+    let (_ti, uo) = make_input(&mut OsRng.clone(), available_balance / 2, &factories.commitment, None).await;
+    oms.output_manager_handle.add_output(uo, None).await.unwrap();
+    let (_ti, uo) = make_input(&mut OsRng.clone(), available_balance / 2, &factories.commitment, None).await;
     oms.output_manager_handle.add_output(uo, None).await.unwrap();
 
     let balance = oms.output_manager_handle.get_balance().await.unwrap();
     assert_eq!(balance.available_balance, available_balance);
     assert_eq!(balance.time_locked_balance.unwrap(), MicroTari::from(0));
+    assert_eq!(balance.pending_outgoing_balance, MicroTari::from(0));
 
-    // Check that funds are encumbered and then unencumbered if the pending tx is not confirmed before restart
+    // Check that funds are encumbered and stay encumbered if the pending tx is not confirmed before restart
     let _stp = oms
         .output_manager_handle
         .prepare_transaction_to_send(
@@ -1062,16 +1089,18 @@ async fn sending_transaction_with_short_term_clear() {
         .unwrap();
 
     let balance = oms.output_manager_handle.get_balance().await.unwrap();
-    assert_eq!(balance.available_balance, MicroTari::from(0));
+    assert_eq!(balance.available_balance, available_balance / 2);
     assert_eq!(balance.time_locked_balance.unwrap(), MicroTari::from(0));
-    assert_eq!(balance.pending_outgoing_balance, available_balance);
+    assert_eq!(balance.pending_outgoing_balance, available_balance / 2);
 
+    // This simulates an offline wallet with a  queued transaction that has not been sent to the receiving wallet yet
     drop(oms.output_manager_handle);
     let mut oms = setup_output_manager_service(backend.clone(), ks_backend.clone(), true).await;
 
     let balance = oms.output_manager_handle.get_balance().await.unwrap();
-    assert_eq!(balance.available_balance, available_balance);
+    assert_eq!(balance.available_balance, available_balance / 2);
     assert_eq!(balance.time_locked_balance.unwrap(), MicroTari::from(0));
+    assert_eq!(balance.pending_outgoing_balance, available_balance / 2);
 
     // Check that is the pending tx is confirmed that the encumberance persists after restart
     let stp = oms
@@ -1201,7 +1230,7 @@ async fn handle_coinbase() {
     let fees3 = MicroTari::from(500);
     let value3 = reward3 + fees3;
 
-    let _ = oms
+    let _transaction = oms
         .output_manager_handle
         .get_coinbase_transaction(1u64.into(), reward1, fees1, 1)
         .await
@@ -1409,7 +1438,7 @@ async fn test_txo_validation() {
     let (_recv_tx_id, sender_message) =
         generate_sender_transaction_message(recv_value, Some(oms.output_manager_handle.clone())).await;
 
-    let _ = oms
+    let _receiver_transaction_protocal = oms
         .output_manager_handle
         .get_recipient_transaction(sender_message)
         .await
@@ -1703,7 +1732,7 @@ async fn test_txo_validation() {
         .send(Arc::new(BaseNodeEvent::BaseNodeStateChanged(BaseNodeState::default())))
         .unwrap();
 
-    let _ = oms
+    let _result = oms
         .base_node_wallet_rpc_mock_state
         .wait_pop_get_header_by_height_calls(2, Duration::from_secs(60))
         .await
@@ -1838,12 +1867,12 @@ async fn test_txo_revalidation() {
     let output1 = create_unblinded_output(
         script!(Nop),
         OutputFeatures::default(),
-        TestParamsHelpers::new(),
+        &TestParamsHelpers::new(),
         MicroTari::from(output1_value),
     );
     let output1_tx_output = output1.as_transaction_output(&factories).unwrap();
     oms.output_manager_handle
-        .add_output_with_tx_id(1.into(), output1.clone(), None)
+        .add_output_with_tx_id(TxId::from(1), output1.clone(), None)
         .await
         .unwrap();
 
@@ -1851,13 +1880,13 @@ async fn test_txo_revalidation() {
     let output2 = create_unblinded_output(
         script!(Nop),
         OutputFeatures::default(),
-        TestParamsHelpers::new(),
+        &TestParamsHelpers::new(),
         MicroTari::from(output2_value),
     );
     let output2_tx_output = output2.as_transaction_output(&factories).unwrap();
 
     oms.output_manager_handle
-        .add_output_with_tx_id(2.into(), output2.clone(), None)
+        .add_output_with_tx_id(TxId::from(2), output2.clone(), None)
         .await
         .unwrap();
 
@@ -2002,12 +2031,166 @@ async fn test_get_status_by_tx_id() {
         .await
         .unwrap();
 
-    let (status, _, _) = oms
+    let output_statuses_by_tx_id = oms
         .output_manager_handle
         .get_output_statuses_by_tx_id(TxId::from(1u64))
         .await
         .unwrap();
 
-    assert_eq!(status.len(), 1);
-    assert_eq!(status[0], OutputStatus::EncumberedToBeReceived);
+    assert_eq!(output_statuses_by_tx_id.statuses.len(), 1);
+    assert_eq!(
+        output_statuses_by_tx_id.statuses[0],
+        OutputStatus::EncumberedToBeReceived
+    );
+}
+
+#[tokio::test]
+async fn scan_for_recovery_test() {
+    let factories = CryptoFactories::default();
+    let (connection, _tempdir) = get_temp_sqlite_database_connection();
+    let backend = OutputManagerSqliteDatabase::new(connection.clone(), None);
+    let ks_backend = KeyManagerSqliteDatabase::new(connection, None).unwrap();
+    let mut oms = setup_output_manager_service(backend.clone(), ks_backend, true).await;
+
+    const NUM_REWINDABLE: usize = 5;
+    const NUM_NON_REWINDABLE: usize = 3;
+
+    let mut rewindable_unblinded_outputs = Vec::new();
+
+    for i in 1..=NUM_REWINDABLE {
+        let spending_key_result = oms
+            .key_manager_handler
+            .get_next_key(OutputManagerKeyManagerBranch::Spend.get_branch_key())
+            .await
+            .unwrap();
+        let script_key = oms
+            .key_manager_handler
+            .get_key_at_index(
+                OutputManagerKeyManagerBranch::SpendScript.get_branch_key(),
+                spending_key_result.index,
+            )
+            .await
+            .unwrap();
+        let commitment = factories
+            .commitment
+            .commit_value(&spending_key_result.key, 1000 * i as u64);
+        let mut features = OutputFeatures::default();
+        features.update_recovery_byte(&commitment, Some(&oms.rewind_data));
+        let uo = UnblindedOutput::new_current_version(
+            MicroTari::from(1000 * i as u64),
+            spending_key_result.key,
+            features,
+            script!(Nop),
+            inputs!(PublicKey::from_secret_key(&script_key)),
+            script_key,
+            PublicKey::default(),
+            ComSignature::default(),
+            0,
+            Covenant::new(),
+        );
+        rewindable_unblinded_outputs.push(uo);
+    }
+
+    let mut non_rewindable_unblinded_outputs = Vec::new();
+
+    for i in 1..=NUM_NON_REWINDABLE {
+        let (_ti, uo) = make_input(
+            &mut OsRng,
+            MicroTari::from(1000 * i as u64),
+            &factories.commitment,
+            Some(oms.output_manager_handle.clone()),
+        )
+        .await;
+        non_rewindable_unblinded_outputs.push(uo)
+    }
+
+    let rewindable_outputs: Vec<TransactionOutput> = rewindable_unblinded_outputs
+        .clone()
+        .into_iter()
+        .map(|uo| {
+            uo.as_rewindable_transaction_output(&factories, &oms.rewind_data, None)
+                .unwrap()
+        })
+        .collect();
+
+    let recovery_byte_key = oms
+        .key_manager_handler
+        .get_key_at_index(OutputManagerKeyManagerBranch::RecoveryByte.get_branch_key(), 0)
+        .await
+        .unwrap();
+    let other_rewind_data = RewindData {
+        rewind_key: PrivateKey::random(&mut OsRng),
+        rewind_blinding_key: PrivateKey::random(&mut OsRng),
+        recovery_byte_key,
+        proof_message: [0u8; REWIND_USER_MESSAGE_LENGTH],
+    };
+
+    let non_rewindable_outputs: Vec<TransactionOutput> = non_rewindable_unblinded_outputs
+        .clone()
+        .into_iter()
+        .map(|uo| {
+            uo.as_rewindable_transaction_output(&factories, &other_rewind_data, None)
+                .unwrap()
+        })
+        .collect();
+
+    oms.output_manager_handle
+        .add_rewindable_output(rewindable_unblinded_outputs[0].clone(), None, None)
+        .await
+        .unwrap();
+
+    let recovered_outputs = oms
+        .output_manager_handle
+        .scan_for_recoverable_outputs(
+            rewindable_outputs
+                .clone()
+                .into_iter()
+                .chain(non_rewindable_outputs.clone().into_iter())
+                .collect::<Vec<TransactionOutput>>(),
+        )
+        .await
+        .unwrap();
+
+    // Check that the non-rewindable outputs are not preset, also check that one rewindable output that was already
+    // contained in the OMS database is also not included in the returns outputs.
+
+    assert_eq!(recovered_outputs.len(), NUM_REWINDABLE - 1);
+    for o in rewindable_unblinded_outputs.iter().skip(1) {
+        assert!(recovered_outputs
+            .iter()
+            .any(|ro| ro.output.spending_key == o.spending_key));
+    }
+}
+
+#[tokio::test]
+async fn recovered_output_key_not_in_keychain() {
+    let factories = CryptoFactories::default();
+    let (connection, _tempdir) = get_temp_sqlite_database_connection();
+    let backend = OutputManagerSqliteDatabase::new(connection.clone(), None);
+    let ks_backend = KeyManagerSqliteDatabase::new(connection, None).unwrap();
+    let mut oms = setup_output_manager_service(backend.clone(), ks_backend, true).await;
+
+    let (_ti, uo) = make_input(
+        &mut OsRng,
+        MicroTari::from(1000u64),
+        &factories.commitment,
+        Some(oms.output_manager_handle.clone()),
+    )
+    .await;
+
+    let rewindable_output = uo
+        .as_rewindable_transaction_output(&factories, &oms.rewind_data, None)
+        .unwrap();
+
+    let result = oms
+        .output_manager_handle
+        .scan_for_recoverable_outputs(vec![rewindable_output])
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(OutputManagerError::KeyManagerServiceError(
+            KeyManagerServiceError::KeyNotFoundInKeyChain
+        ))
+    ));
 }

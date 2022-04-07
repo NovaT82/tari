@@ -22,6 +22,7 @@
 
 use std::{fmt, io, net::TcpListener};
 
+use derivative::Derivative;
 use libtor::{LogDestination, LogLevel, TorFlag};
 use log::*;
 use multiaddr::Multiaddr;
@@ -45,12 +46,14 @@ impl fmt::Debug for TorPassword {
     }
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Tor {
     control_port: u16,
     data_dir: String,
     log_destination: String,
     log_level: LogLevel,
+    #[derivative(Debug = "ignore")]
     passphrase: TorPassword,
     socks_port: u16,
     temp_dir: Option<TempDir>,
@@ -143,7 +146,7 @@ impl Tor {
             Ok(transport)
         } else {
             let e = format!("Expected a TorHiddenService comms transport, received: {:?}", transport);
-            Err(ExitError::new(ExitCode::ConfigError, e))
+            Err(ExitError::new(ExitCode::ConfigError, &e))
         }
     }
 

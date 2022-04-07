@@ -448,7 +448,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
 
         let mut standard_transfers = Vec::new();
         let mut one_sided_transfers = Vec::new();
-        for (address, pk, amount, fee_per_gram, message, payment_type) in recipients.into_iter() {
+        for (address, pk, amount, fee_per_gram, message, payment_type) in recipients {
             let mut transaction_service = self.get_transaction_service();
             if payment_type == PaymentType::StandardMimblewimble as i32 {
                 standard_transfers.push(async move {
@@ -468,6 +468,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
                             .await,
                     )
                 });
+            } else {
             }
         }
 
@@ -633,10 +634,14 @@ impl wallet_server::Wallet for WalletGrpcServer {
             .map_err(Status::invalid_argument)?;
         let mut tx_ids = Vec::new();
 
-        for o in unblinded_outputs.iter() {
+        for o in &unblinded_outputs {
             tx_ids.push(
                 wallet
-                    .import_unblinded_utxo(o.clone(), &CommsPublicKey::default(), "Imported via gRPC".to_string())
+                    .import_unblinded_output_as_non_rewindable(
+                        o.clone(),
+                        &CommsPublicKey::default(),
+                        "Imported via gRPC".to_string(),
+                    )
                     .await
                     .map_err(|e| Status::internal(format!("{:?}", e)))?
                     .into(),
@@ -677,7 +682,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
             .next()
             .unwrap();
         let message = format!("Asset registration for {}", asset_public_key);
-        let _result = transaction_service
+        let _ = transaction_service
             .submit_transaction(tx_id, transaction, 0.into(), message)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -727,7 +732,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let message = format!("Initial asset checkpoint for {}", asset_public_key);
-        let _result = transaction_service
+        let _ = transaction_service
             .submit_transaction(tx_id, transaction, 0.into(), message)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -755,7 +760,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let message = format!("Asset state checkpoint for {}", asset_public_key);
-        let _result = transaction_service
+        let _ = transaction_service
             .submit_transaction(tx_id, transaction, 0.into(), message)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -803,7 +808,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
             &asset_public_key.to_hex()[..7],
             effective_sidechain_height
         );
-        let _result = transaction_service
+        let _ = transaction_service
             .submit_transaction(tx_id, transaction, 0.into(), message)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -849,7 +854,7 @@ impl wallet_server::Wallet for WalletGrpcServer {
             owner_commitments.len(),
             asset_public_key
         );
-        let _result = transaction_service
+        let _ = transaction_service
             .submit_transaction(tx_id, transaction, 0.into(), message)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -975,7 +980,7 @@ fn convert_wallet_transaction_into_transaction_info(
     tx: models::WalletTransaction,
     wallet_pk: &CommsPublicKey,
 ) -> TransactionInfo {
-    use models::WalletTransaction::*;
+    use models::WalletTransaction::{Completed, PendingInbound, PendingOutbound};
     match tx {
         PendingInbound(tx) => TransactionInfo {
             tx_id: tx.tx_id.into(),

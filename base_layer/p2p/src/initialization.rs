@@ -35,7 +35,11 @@ use futures::future;
 use lmdb_zero::open;
 use log::*;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
-use tari_common::{configuration::Network, DnsNameServer};
+use tari_common::{
+    configuration::Network,
+    exit_codes::{ExitCode, ExitError},
+    DnsNameServer,
+};
 use tari_comms::{
     backoff::ConstantBackoff,
     multiaddr::Multiaddr,
@@ -98,16 +102,13 @@ pub enum CommsInitializationError {
 }
 
 impl CommsInitializationError {
-    pub fn to_friendly_string(&self) -> String {
-        // Add any helpful user-facing messages here
+    pub fn into_exit_error(self) -> ExitError {
+        use CommsInitializationError::HiddenServiceControllerError;
         match self {
-            CommsInitializationError::HiddenServiceControllerError(HiddenServiceControllerError::TorControlPortOffline)
-                 => r#"Unable to connect to the Tor control port.
-    Please check that you have the Tor proxy running and that access to the Tor control port is turned on.
-    If you are unsure of what to do, use the following command to start the Tor proxy:
-    tor --allow-missing-torrc --ignore-missing-torrc --clientonly 1 --socksport 9050 --controlport 127.0.0.1:9051 --log "warn stdout" --clientuseipv6 1"#
-                    .to_string(),
-            err => format!("Failed to initialize comms: {:?}", err),
+            HiddenServiceControllerError(self::HiddenServiceControllerError::TorControlPortOffline) => {
+                ExitError::new(ExitCode::TorOffline, &self)
+            },
+            err => ExitError::new(ExitCode::NetworkError, &err),
         }
     }
 }
@@ -158,7 +159,7 @@ pub struct P2pConfig {
     /// The address to bind on using the TCP transport _in addition to_ the primary transport. This is typically useful
     /// for direct comms between a wallet and base node. If this is set to None, no listener will be bound.
     /// Default: None
-    pub auxilary_tcp_listener_address: Option<Multiaddr>,
+    pub auxiliary_tcp_listener_address: Option<Multiaddr>,
 }
 
 /// Initialize Tari Comms configured for tests
@@ -196,7 +197,7 @@ pub async fn initialize_local_test_comms(
         .with_listener_address(node_identity.public_address())
         .with_listener_liveness_max_sessions(1)
         .with_node_identity(node_identity)
-        .with_user_agent("/test/1.0")
+        .with_user_agent(&"/test/1.0")
         .with_peer_storage(peer_database, None)
         .with_dial_backoff(ConstantBackoff::new(Duration::from_millis(500)))
         .with_min_connectivity(1)
@@ -351,8 +352,8 @@ async fn configure_comms_and_dht(
         .with_dial_backoff(ConstantBackoff::new(Duration::from_millis(500)))
         .with_peer_storage(peer_database, Some(file_lock));
 
-    let mut comms = match config.auxilary_tcp_listener_address {
-        Some(ref addr) => builder.with_auxilary_tcp_listener_address(addr.clone()).build()?,
+    let mut comms = match config.auxiliary_tcp_listener_address {
+        Some(ref addr) => builder.with_auxiliary_tcp_listener_address(addr.clone()).build()?,
         None => builder.build()?,
     };
 

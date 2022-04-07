@@ -68,7 +68,7 @@ pub fn setup_contacts_service<T: ContactsBackend + 'static>(
         transport_type: TransportType::Memory {
             listener_address: node_identity.public_address(),
         },
-        auxilary_tcp_listener_address: None,
+        auxiliary_tcp_listener_address: None,
         datastore_path: tempdir().unwrap().into_path(),
         peer_database_name: random::string(8),
         max_concurrent_inbound_tasks: 10,
@@ -162,7 +162,7 @@ pub fn test_contacts_service() {
         _ => panic!("There should be a specific error here"),
     }
 
-    let _ = runtime
+    let _contact = runtime
         .block_on(contacts_service.remove_contact(contacts[0].public_key.clone()))
         .unwrap();
     contacts.remove(0);
@@ -182,6 +182,7 @@ pub fn test_contacts_service() {
 
     assert_eq!(new_contact.alias, updated_contact.alias);
 
+    #[allow(clippy::match_wild_err_arm)]
     match liveness_event_stream.try_recv() {
         Ok(_) => panic!("Should not receive any event here"),
         Err(TryRecvError::Empty) => {},

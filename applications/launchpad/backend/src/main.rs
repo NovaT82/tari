@@ -1,3 +1,6 @@
+// Copyright 2022 The Tari Project
+// SPDX-License-Identifier: BSD-3-Clause
+
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 use log::*;
@@ -59,7 +62,7 @@ fn main() {
             info!("Received Exit event");
             block_on(async move {
                 let state = app.state();
-                let _ = shutdown(state).await;
+                let _message = shutdown(state).await;
             });
         }
     });

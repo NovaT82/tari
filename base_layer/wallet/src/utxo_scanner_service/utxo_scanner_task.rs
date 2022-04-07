@@ -85,6 +85,7 @@ where TBackend: WalletBackend + 'static
                 "Scanning round aborted as a Recovery is in progress"
             );
             return Ok(());
+        } else {
         }
 
         loop {
@@ -326,16 +327,16 @@ where TBackend: WalletBackend + 'static
         let mut found_scanned_block = None;
         let mut num_outputs = 0u64;
         let mut amount = MicroTari::from(0);
-        for sb in scanned_blocks.into_iter() {
+        for sb in scanned_blocks {
             if sb.height <= current_tip_height {
                 if found_scanned_block.is_none() {
                     let header = BlockHeader::try_from(client.get_header_by_height(sb.height).await?)
                         .map_err(UtxoScannerError::ConversionError)?;
                     let header_hash = header.hash();
-                    if header_hash != sb.header_hash {
-                        missing_scanned_blocks.push(sb.clone());
-                    } else {
+                    if header_hash == sb.header_hash {
                         found_scanned_block = Some(sb.clone());
+                    } else {
+                        missing_scanned_blocks.push(sb.clone());
                     }
                 }
                 if found_scanned_block.is_some() {
@@ -436,11 +437,11 @@ where TBackend: WalletBackend + 'static
             total_scanned += outputs.len();
 
             let start = Instant::now();
-            let (tx_id, found_outputs) = self.scan_for_outputs(outputs).await?;
+            let found_outputs = self.scan_for_outputs(outputs).await?;
             scan_for_outputs_profiling.push(start.elapsed());
 
             let (count, amount) = self
-                .import_utxos_to_transaction_service(found_outputs, tx_id, current_height)
+                .import_utxos_to_transaction_service(found_outputs, current_height)
                 .await?;
 
             self.resources
@@ -492,18 +493,17 @@ where TBackend: WalletBackend + 'static
     async fn scan_for_outputs(
         &mut self,
         outputs: Vec<TransactionOutput>,
-    ) -> Result<(TxId, Vec<(UnblindedOutput, String)>), UtxoScannerError> {
-        let mut found_outputs: Vec<(UnblindedOutput, String)> = Vec::new();
-        let tx_id = TxId::new_random();
+    ) -> Result<Vec<(UnblindedOutput, String, TxId)>, UtxoScannerError> {
+        let mut found_outputs: Vec<(UnblindedOutput, String, TxId)> = Vec::new();
         if self.mode == UtxoScannerMode::Recovery {
             found_outputs.append(
                 &mut self
                     .resources
                     .output_manager_service
-                    .scan_for_recoverable_outputs(outputs.clone(), tx_id)
+                    .scan_for_recoverable_outputs(outputs.clone())
                     .await?
                     .into_iter()
-                    .map(|uo| (uo, self.resources.recovery_message.clone()))
+                    .map(|ro| (ro.output, self.resources.recovery_message.clone(), ro.tx_id))
                     .collect(),
             );
         };
@@ -511,19 +511,18 @@ where TBackend: WalletBackend + 'static
             &mut self
                 .resources
                 .output_manager_service
-                .scan_outputs_for_one_sided_payments(outputs.clone(), tx_id)
+                .scan_outputs_for_one_sided_payments(outputs.clone())
                 .await?
                 .into_iter()
-                .map(|uo| (uo, self.resources.one_sided_payment_message.clone()))
+                .map(|ro| (ro.output, self.resources.one_sided_payment_message.clone(), ro.tx_id))
                 .collect(),
         );
-        Ok((tx_id, found_outputs))
+        Ok(found_outputs)
     }
 
     async fn import_utxos_to_transaction_service(
         &mut self,
-        utxos: Vec<(UnblindedOutput, String)>,
-        tx_id: TxId,
+        utxos: Vec<(UnblindedOutput, String, TxId)>,
         current_height: u64,
     ) -> Result<(u64, MicroTari), UtxoScannerError> {
         let mut num_recovered = 0u64;
@@ -532,7 +531,7 @@ where TBackend: WalletBackend + 'static
         // value is a placeholder.
         let source_public_key = CommsPublicKey::default();
 
-        for (uo, message) in utxos {
+        for (uo, message, tx_id) in utxos {
             match self
                 .import_unblinded_utxo_to_transaction_service(
                     uo.clone(),
@@ -589,7 +588,7 @@ where TBackend: WalletBackend + 'static
     }
 
     fn publish_event(&self, event: UtxoScannerEvent) {
-        let _ = self.event_sender.send(event);
+        let _size = self.event_sender.send(event);
     }
 
     /// A faux incoming transaction will be created to provide a record of the event of importing a scanned UTXO. The
@@ -642,7 +641,7 @@ where TBackend: WalletBackend + 'static
         let birthday = self.resources.db.get_wallet_birthday().await?;
         // Calculate the unix epoch time of two days before the wallet birthday. This is to avoid any weird time zone
         // issues
-        let epoch_time = (birthday.saturating_sub(2) as u64) * 60 * 60 * 24;
+        let epoch_time = u64::from(birthday.saturating_sub(2)) * 60 * 60 * 24;
         let block_height = match client.get_height_at_time(epoch_time).await {
             Ok(b) => b,
             Err(e) => {

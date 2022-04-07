@@ -141,8 +141,8 @@ mod test {
     use tari_crypto::{
         commitment::HomomorphicCommitmentFactory,
         keys::{PublicKey as PK, SecretKey as SK},
-        script::TariScript,
     };
+    use tari_script::TariScript;
 
     use crate::transactions::{
         crypto_factories::CryptoFactories,
@@ -169,6 +169,7 @@ mod test {
         let factories = CryptoFactories::default();
         let info = SingleRoundSenderData::default();
         let (r, k, _) = generate_output_parms();
+        #[allow(clippy::match_wild_err_arm)]
         match SingleReceiverTransactionProtocol::create(&info, r, k, &factories, None) {
             Ok(_) => panic!("Zero amounts should fail"),
             Err(TransactionProtocolError::ValidationError(s)) => assert_eq!(s, "Cannot send zero microTari"),

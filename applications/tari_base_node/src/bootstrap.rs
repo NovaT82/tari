@@ -22,12 +22,15 @@
 
 use std::{cmp, fs, str::FromStr, sync::Arc, time::Duration};
 
-use anyhow::anyhow;
 use log::*;
 use tari_app_utilities::{consts, identity_management, utilities::create_transport_type};
-use tari_common::{configuration::bootstrap::ApplicationType, GlobalConfig};
+use tari_common::{
+    configuration::bootstrap::ApplicationType,
+    exit_codes::{ExitCode, ExitError},
+    GlobalConfig,
+};
 use tari_comms::{peer_manager::Peer, protocol::rpc::RpcServer, NodeIdentity, UnspawnedCommsNode};
-use tari_comms_dht::{store_forward::SafConfig, DbConnectionUrl, Dht, DhtConfig};
+use tari_comms_dht::{store_forward::SafConfig, DbConnectionUrl, Dht, DhtConfig, DhtConnectivityConfig};
 use tari_core::{
     base_node,
     base_node::{
@@ -80,7 +83,7 @@ pub struct BaseNodeBootstrapper<'a, B> {
 impl<B> BaseNodeBootstrapper<'_, B>
 where B: BlockchainBackend + 'static
 {
-    pub async fn bootstrap(self) -> Result<ServiceHandles, anyhow::Error> {
+    pub async fn bootstrap(self) -> Result<ServiceHandles, ExitError> {
         let config = self.config;
 
         fs::create_dir_all(&config.comms_peer_db_path)?;
@@ -106,7 +109,7 @@ where B: BlockchainBackend + 'static
             .map(|s| SeedPeer::from_str(s))
             .map(|r| r.map(Peer::from).map(|p| p.node_id))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow!("Invalid force sync peer: {:?}", e))?;
+            .map_err(|e| ExitError::new(ExitCode::ConfigError, &e))?;
 
         debug!(target: LOG_TARGET, "{} sync peer(s) configured", sync_peers.len());
 
@@ -177,31 +180,21 @@ where B: BlockchainBackend + 'static
 
         let comms = comms.add_protocol_extension(mempool_protocol);
         let comms = Self::setup_rpc_services(comms, &handles, self.db.into(), config);
-        let comms = initialization::spawn_comms_using_transport(comms, transport_type.clone()).await?;
+        let comms = initialization::spawn_comms_using_transport(comms, transport_type.clone())
+            .await
+            .map_err(|e| e.into_exit_error())?;
         // Save final node identity after comms has initialized. This is required because the public_address can be
         // changed by comms during initialization when using tor.
         match transport_type {
             TransportType::Tcp { .. } => {}, // Do not overwrite TCP public_address in the base_node_id!
             _ => {
-                identity_management::save_as_json(&config.base_node_identity_file, &*comms.node_identity()).map_err(
-                    |e| {
-                        anyhow!(
-                            "Failed to save node identity - {:?}: {:?}",
-                            config.base_node_identity_file,
-                            e
-                        )
-                    },
-                )?;
+                identity_management::save_as_json(&config.base_node_identity_file, &*comms.node_identity())
+                    .map_err(|e| ExitError::new(ExitCode::IdentityError, &e))?;
             },
         };
         if let Some(hs) = comms.hidden_service() {
-            identity_management::save_as_json(&config.base_node_tor_identity_file, hs.tor_identity()).map_err(|e| {
-                anyhow!(
-                    "Failed to save tor identity - {:?}: {:?}",
-                    config.base_node_tor_identity_file,
-                    e
-                )
-            })?;
+            identity_management::save_as_json(&config.base_node_tor_identity_file, hs.tor_identity())
+                .map_err(|e| ExitError::new(ExitCode::IdentityError, &e))?;
         }
 
         handles.register(comms);
@@ -255,7 +248,7 @@ where B: BlockchainBackend + 'static
             network: self.config.network,
             node_identity: self.node_identity.clone(),
             transport_type: create_transport_type(self.config),
-            auxilary_tcp_listener_address: self.config.auxilary_tcp_listener_address.clone(),
+            auxiliary_tcp_listener_address: self.config.auxiliary_tcp_listener_address.clone(),
             datastore_path: self.config.comms_peer_db_path.clone(),
             peer_database_name: "peers".to_string(),
             max_concurrent_inbound_tasks: 50,
@@ -268,9 +261,15 @@ where B: BlockchainBackend + 'static
                 flood_ban_max_msg_count: self.config.flood_ban_max_msg_count,
                 saf_config: SafConfig {
                     msg_validity: self.config.saf_expiry_duration,
+                    // Base node does not ever need to request SAF messages
+                    auto_request: false,
                     ..Default::default()
                 },
                 dedup_cache_capacity: self.config.dht_dedup_cache_capacity,
+                connectivity: DhtConnectivityConfig {
+                    minimum_desired_tcpv4_node_ratio: self.config.dht_minimum_desired_tcpv4_node_ratio,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             allow_test_addresses: self.config.comms_allow_test_addresses,

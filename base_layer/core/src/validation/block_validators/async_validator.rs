@@ -25,7 +25,8 @@ use async_trait::async_trait;
 use futures::{stream::FuturesUnordered, StreamExt};
 use log::*;
 use tari_common_types::types::{Commitment, HashOutput, PublicKey};
-use tari_crypto::{commitment::HomomorphicCommitmentFactory, script::ScriptContext};
+use tari_crypto::commitment::HomomorphicCommitmentFactory;
+use tari_script::ScriptContext;
 use tari_utilities::Hashable;
 use tokio::task;
 
@@ -260,7 +261,7 @@ impl<B: BlockchainBackend + 'static> BlockValidator<B> {
                 }
             }
 
-            for input in inputs.iter_mut() {
+            for input in &mut inputs {
                 // Read the spent_output for this compact input
                 if input.is_compact() {
                     let output_mined_info = db

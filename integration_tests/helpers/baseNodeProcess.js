@@ -1,3 +1,6 @@
+// Copyright 2022 The Tari Project
+// SPDX-License-Identifier: BSD-3-Clause
+
 const { spawn } = require("child_process");
 const { expect } = require("chai");
 const fs = require("fs");
@@ -139,7 +142,7 @@ class BaseNodeProcess {
       });
       fs.writeFileSync(
         `${this.baseDir}/start_node.sh`,
-        "export $(grep -v '^#' .env | xargs)\ncargo run --release --bin tari_base_node -- -b ."
+        "export $(grep -v '^#' .env | xargs)\ncargo run --release --bin tari_base_node -- -n --watch status -b ."
       );
       const ps = spawn(cmd, args, {
         cwd: this.baseDir,
@@ -203,7 +206,13 @@ class BaseNodeProcess {
   }
 
   async start(opts = []) {
-    const args = ["--base-path", "."];
+    const args = [
+      "--non-interactive-mode",
+      "--watch",
+      "status",
+      "--base-path",
+      ".",
+    ];
     if (this.logFilePath) {
       args.push("--log-config", this.logFilePath);
     }

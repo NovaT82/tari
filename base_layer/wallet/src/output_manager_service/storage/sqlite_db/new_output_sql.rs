@@ -20,6 +20,7 @@
 //  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 //  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 use aes_gcm::Aes256Gcm;
+use derivative::Derivative;
 use diesel::{prelude::*, SqliteConnection};
 use tari_common_types::transaction::TxId;
 use tari_crypto::tari_utilities::ByteArray;
@@ -35,10 +36,12 @@ use crate::{
 
 /// This struct represents an Output in the Sql database. A distinct struct is required to define the Sql friendly
 /// equivalent datatypes for the members.
-#[derive(Clone, Debug, Insertable, PartialEq)]
+#[derive(Clone, Derivative, Insertable, PartialEq)]
+#[derivative(Debug)]
 #[table_name = "outputs"]
 pub struct NewOutputSql {
     pub commitment: Option<Vec<u8>>,
+    #[derivative(Debug = "ignore")]
     pub spending_key: Vec<u8>,
     pub value: i64,
     pub flags: i32,
@@ -48,6 +51,7 @@ pub struct NewOutputSql {
     pub hash: Option<Vec<u8>>,
     pub script: Vec<u8>,
     pub input_data: Vec<u8>,
+    #[derivative(Debug = "ignore")]
     pub script_private_key: Vec<u8>,
     pub metadata: Option<Vec<u8>>,
     pub features_parent_public_key: Option<Vec<u8>>,
@@ -73,9 +77,9 @@ impl NewOutputSql {
             commitment: Some(output.commitment.to_vec()),
             spending_key: output.unblinded_output.spending_key.to_vec(),
             value: (u64::from(output.unblinded_output.value)) as i64,
-            flags: output.unblinded_output.features.flags.bits() as i32,
+            flags: i32::from(output.unblinded_output.features.flags.bits()),
             maturity: output.unblinded_output.features.maturity as i64,
-            recovery_byte: output.unblinded_output.features.recovery_byte as i32,
+            recovery_byte: i32::from(output.unblinded_output.features.recovery_byte),
             status: status as i32,
             received_in_tx_id: received_in_tx_id.map(|i| i.as_u64() as i64),
             hash: Some(output.hash),

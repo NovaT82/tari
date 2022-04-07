@@ -29,10 +29,9 @@ use tari_crypto::{
     keys::{PublicKey as PublicKeyTrait, SecretKey as SecretKeyTrait},
     range_proof::{RangeProofError, RangeProofService},
     ristretto::pedersen::PedersenCommitmentFactory,
-    script,
-    script::{ExecutionStack, StackItem},
     tari_utilities::{hex::Hex, Hashable},
 };
+use tari_script::{script, ExecutionStack, StackItem};
 use tari_test_utils::unpack_enum;
 use tari_utilities::ByteArray;
 
@@ -373,7 +372,6 @@ fn check_duplicate_inputs_outputs() {
 }
 
 #[test]
-#[ignore = "TODO: fix script error"]
 fn inputs_not_malleable() {
     let (inputs, outputs) = test_helpers::create_unblinded_txos(
         5000.into(),
@@ -381,19 +379,18 @@ fn inputs_not_malleable() {
         1,
         2,
         15.into(),
-        Default::default(),
-        script![Drop],
-        Default::default(),
+        &Default::default(),
+        &script![Nop],
+        &Default::default(),
     );
-    let script_pk = PublicKey::from_secret_key(&outputs[0].0.script_private_key);
     let mut stack = inputs[0].input_data.clone();
     let mut tx = test_helpers::create_transaction_with(1, 15.into(), inputs, outputs);
 
     stack
         .push(StackItem::Hash(*b"Pls put this on tha tari network"))
         .unwrap();
-    stack.push(StackItem::PublicKey(script_pk)).unwrap();
 
+    tx.body.inputs_mut()[0].set_script(script![Drop]).unwrap();
     tx.body.inputs_mut()[0].input_data = stack;
 
     let factories = CryptoFactories::default();
@@ -401,7 +398,6 @@ fn inputs_not_malleable() {
         .validate_internal_consistency(false, &factories, None, None, u64::MAX)
         .unwrap_err();
     unpack_enum!(TransactionError::InvalidSignatureError(_a) = err);
-    // assert!(matches!(err, TransactionError::InvalidSignatureError(_)));
 }
 
 #[test]
@@ -573,9 +569,9 @@ mod validate_internal_consistency {
             0,
             1,
             5 * uT,
-            utxo_params.features.clone(),
-            utxo_params.script.clone(),
-            utxo_params.covenant.clone(),
+            &utxo_params.features.clone(),
+            &utxo_params.script.clone(),
+            &utxo_params.covenant.clone(),
         );
         inputs[0].features = input_params.features.clone();
         inputs[0].covenant = input_params.covenant.clone();

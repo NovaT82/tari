@@ -66,13 +66,10 @@ use tari_core::{
         CryptoFactories,
     },
 };
-use tari_crypto::{
-    inputs,
-    keys::{PublicKey as PublicKeyTrait, SecretKey},
-    script,
-};
+use tari_crypto::keys::{PublicKey as PublicKeyTrait, SecretKey};
 use tari_key_manager::{cipher_seed::CipherSeed, mnemonic::Mnemonic};
 use tari_p2p::{initialization::P2pConfig, transport::TransportType, Network, DEFAULT_DNS_NAME_SERVER};
+use tari_script::{inputs, script};
 use tari_shutdown::{Shutdown, ShutdownSignal};
 use tari_test_utils::random;
 use tari_utilities::Hashable;
@@ -139,7 +136,7 @@ async fn create_wallet(
         transport_type: TransportType::Memory {
             listener_address: node_identity.public_address(),
         },
-        auxilary_tcp_listener_address: None,
+        auxiliary_tcp_listener_address: None,
         datastore_path: data_path.to_path_buf(),
         peer_database_name: random::string(8),
         max_concurrent_inbound_tasks: 10,
@@ -194,7 +191,7 @@ async fn create_wallet(
     );
     let metadata = ChainMetadata::new(std::i64::MAX as u64, Vec::new(), 0, 0, 0);
 
-    let _ = wallet_backend.write(WriteOperation::Insert(DbKeyValuePair::BaseNodeChainMetadata(metadata)));
+    let _db_value = wallet_backend.write(WriteOperation::Insert(DbKeyValuePair::BaseNodeChainMetadata(metadata)));
 
     let wallet_db = WalletDatabase::new(wallet_backend);
     let master_seed = read_or_create_master_seed(recovery_seed, &wallet_db).await?;
@@ -335,6 +332,7 @@ async fn test_wallet() {
         .unwrap();
 
     // Second encryption should fail
+    #[allow(clippy::match_wild_err_arm)]
     match alice_wallet
         .apply_encryption("It's turtles all the way down".to_string())
         .await
@@ -715,7 +713,7 @@ async fn test_import_utxo() {
             listener_address: "/ip4/127.0.0.1/tcp/0".parse().unwrap(),
             tor_socks_config: None,
         },
-        auxilary_tcp_listener_address: None,
+        auxiliary_tcp_listener_address: None,
         datastore_path: temp_dir.path().to_path_buf(),
         peer_database_name: random::string(8),
         max_concurrent_inbound_tasks: 10,
@@ -765,12 +763,12 @@ async fn test_import_utxo() {
     let temp_features = OutputFeatures::create_coinbase(50, rand::thread_rng().gen::<u8>());
 
     let p = TestParams::new();
-    let utxo = create_unblinded_output(script.clone(), temp_features, p.clone(), 20000 * uT);
+    let utxo = create_unblinded_output(script.clone(), temp_features, &p, 20000 * uT);
     let output = utxo.as_transaction_output(&factories).unwrap();
     let expected_output_hash = output.hash();
 
     let tx_id = alice_wallet
-        .import_utxo(
+        .import_external_utxo_as_non_rewindable(
             utxo.value,
             &utxo.spending_key,
             script.clone(),
@@ -802,7 +800,7 @@ async fn test_import_utxo() {
     assert_eq!(completed_tx.amount, 20000 * uT);
     assert_eq!(completed_tx.status, TransactionStatus::Imported);
     let db = OutputManagerDatabase::new(OutputManagerSqliteDatabase::new(connection, None));
-    let outputs = db.fetch_outputs_by_tx_id(tx_id).await.unwrap();
+    let outputs = db.fetch_outputs_by_tx_id(tx_id).unwrap();
     assert!(outputs.iter().any(|o| { o.hash == expected_output_hash }));
 }
 
@@ -933,7 +931,7 @@ fn test_contacts_service_liveness() {
                                 ping_count += 1;
                             } else if data.message_type() == ContactMessageType::Pong {
                                 pong_count += 1;
-                            }
+                            } else {}
                         }
                         if ping_count > 1 && pong_count > 1 {
                             break;
@@ -965,7 +963,7 @@ fn test_contacts_service_liveness() {
                                 ping_count += 1;
                             } else if data.message_type() == ContactMessageType::Pong {
                                 pong_count += 1;
-                            }
+                            } else {}
                         }
                         if ping_count > 1 && pong_count > 1 {
                             break;

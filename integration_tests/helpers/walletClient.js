@@ -1,3 +1,6 @@
+// Copyright 2022 The Tari Project
+// SPDX-License-Identifier: BSD-3-Clause
+
 const { Client } = require("wallet-grpc-client");
 const { byteArrayToHex, tryConnect, convertStringToVec } = require("./util");
 
@@ -239,6 +242,22 @@ class WalletClient {
         transaction_ids: [tx_id.toString()],
       });
       if (transactionStatus().indexOf(txnDetails.transactions[0].status) == 2) {
+        return true;
+      } else {
+        return false;
+      }
+    } catch (err) {
+      // Any error here must be treated as if the required status was not achieved
+      return false;
+    }
+  }
+
+  async isTransactionCancelled(tx_id) {
+    try {
+      const txnDetails = await this.getTransactionInfo({
+        transaction_ids: [tx_id.toString()],
+      });
+      if (transactionStatus().indexOf(txnDetails.transactions[0].status) == 7) {
         return true;
       } else {
         return false;

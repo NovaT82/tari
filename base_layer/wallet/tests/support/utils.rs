@@ -31,10 +31,8 @@ use tari_core::transactions::{
     },
     transaction_components::{OutputFeatures, TransactionInput, UnblindedOutput},
 };
-use tari_crypto::{
-    keys::{PublicKey as PublicKeyTrait, SecretKey as SecretKeyTrait},
-    script,
-};
+use tari_crypto::keys::{PublicKey as PublicKeyTrait, SecretKey as SecretKeyTrait};
+use tari_script::script;
 use tari_wallet::output_manager_service::handle::OutputManagerHandle;
 
 pub struct TestParams {
@@ -64,18 +62,18 @@ pub async fn make_input<R: Rng + CryptoRng>(
     oms: Option<OutputManagerHandle>,
 ) -> (TransactionInput, UnblindedOutput) {
     let test_params = TestParamsHelpers::new();
-    let mut utxo = create_unblinded_output(script!(Nop), OutputFeatures::default(), test_params.clone(), val);
+    let mut utxo = create_unblinded_output(script!(Nop), OutputFeatures::default(), &test_params.clone(), val);
     // If an 'OutputManagerHandle' is present it will have its own internal 'RewindData', thus do not use those provided
     // by 'TestParamsHelpers::new()'; this will influence validation of output features and the metadata signature
     // further down the line
     if let Some(mut oms) = oms {
         if let Ok(val) = oms
-            .calculate_recovery_byte(utxo.spending_key.clone(), utxo.value.clone().as_u64())
+            .calculate_recovery_byte(utxo.spending_key.clone(), utxo.value.clone().as_u64(), true)
             .await
         {
             utxo.features.set_recovery_byte(val);
             utxo = update_unblinded_output_with_updated_output_features(
-                test_params.clone(),
+                &test_params.clone(),
                 utxo.clone(),
                 utxo.features.clone(),
             );
@@ -96,16 +94,16 @@ pub async fn make_input_with_features<R: Rng + CryptoRng>(
     mut oms: OutputManagerHandle,
 ) -> (TransactionInput, UnblindedOutput) {
     let test_params = TestParamsHelpers::new();
-    let mut utxo = create_unblinded_output(script!(Nop), features.unwrap_or_default(), test_params.clone(), value);
+    let mut utxo = create_unblinded_output(script!(Nop), features.unwrap_or_default(), &test_params.clone(), value);
     // 'OutputManagerHandle' has its own internal 'RewindData', thus do not use those provided by
     // 'TestParamsHelpers::new()'; this will influence validation of output features and the metadata signature
     // further down the line
     if let Ok(val) = oms
-        .calculate_recovery_byte(utxo.spending_key.clone(), utxo.value.clone().as_u64())
+        .calculate_recovery_byte(utxo.spending_key.clone(), utxo.value.clone().as_u64(), true)
         .await
     {
         utxo.features.set_recovery_byte(val);
-        utxo = update_unblinded_output_with_updated_output_features(test_params, utxo.clone(), utxo.features.clone());
+        utxo = update_unblinded_output_with_updated_output_features(&test_params, utxo.clone(), utxo.features.clone());
     };
     (
         utxo.as_transaction_input(factory)

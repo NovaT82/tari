@@ -23,6 +23,7 @@
 use std::convert::{TryFrom, TryInto};
 
 use aes_gcm::Aes256Gcm;
+use derivative::Derivative;
 use diesel::{prelude::*, sql_query, SqliteConnection};
 use log::*;
 use tari_common_types::{
@@ -37,11 +38,8 @@ use tari_core::{
         CryptoFactories,
     },
 };
-use tari_crypto::{
-    commitment::HomomorphicCommitmentFactory,
-    script::{ExecutionStack, TariScript},
-    tari_utilities::ByteArray,
-};
+use tari_crypto::{commitment::HomomorphicCommitmentFactory, tari_utilities::ByteArray};
+use tari_script::{ExecutionStack, TariScript};
 use tari_utilities::hash::Hashable;
 
 use crate::{
@@ -63,11 +61,13 @@ use crate::{
 
 const LOG_TARGET: &str = "wallet::output_manager_service::database::wallet";
 
-#[derive(Clone, Debug, Queryable, Identifiable, PartialEq, QueryableByName)]
+#[derive(Clone, Derivative, Queryable, Identifiable, PartialEq, QueryableByName)]
+#[derivative(Debug)]
 #[table_name = "outputs"]
 pub struct OutputSql {
     pub id: i32, // Auto inc primary key
     pub commitment: Option<Vec<u8>>,
+    #[derivative(Debug = "ignore")]
     pub spending_key: Vec<u8>,
     pub value: i64,
     pub flags: i32,
@@ -77,6 +77,7 @@ pub struct OutputSql {
     pub hash: Option<Vec<u8>>,
     pub script: Vec<u8>,
     pub input_data: Vec<u8>,
+    #[derivative(Debug = "ignore")]
     pub script_private_key: Vec<u8>,
     pub script_lock_height: i64,
     pub sender_offset_public_key: Vec<u8>,
@@ -190,7 +191,7 @@ impl OutputSql {
         conn: &SqliteConnection,
     ) -> Result<Vec<OutputSql>, OutputManagerStorageError> {
         let res = diesel::sql_query("SELECT * FROM outputs where flags & $1 = $1 ORDER BY id;")
-            .bind::<diesel::sql_types::Integer, _>(flags.bits() as i32)
+            .bind::<diesel::sql_types::Integer, _>(i32::from(flags.bits()))
             .load(conn)?;
         Ok(res)
     }
@@ -467,7 +468,7 @@ impl OutputSql {
 
     /// Update the changed fields of this record after encryption/decryption is performed
     pub fn update_encryption(&self, conn: &SqliteConnection) -> Result<(), OutputManagerStorageError> {
-        let _ = self.update(
+        let _output_sql = self.update(
             UpdateOutput {
                 spending_key: Some(self.spending_key.clone()),
                 script_private_key: Some(self.script_private_key.clone()),
@@ -489,9 +490,11 @@ impl TryFrom<OutputSql> for DbUnblindedOutput {
                 reason: format!("Could not convert json into OutputFeatures:{}", s),
             })?;
 
-        features.flags = OutputFlags::from_bits(o.flags as u8).ok_or(OutputManagerStorageError::ConversionError {
-            reason: "Flags could not be converted from bits".to_string(),
-        })?;
+        features.flags = OutputFlags::from_bits(u8::try_from(o.flags).unwrap()).ok_or(
+            OutputManagerStorageError::ConversionError {
+                reason: "Flags could not be converted from bits".to_string(),
+            },
+        )?;
         features.maturity = o.maturity as u64;
         features.metadata = o.metadata.unwrap_or_default();
         features.unique_id = o.features_unique_id.clone();
@@ -499,7 +502,7 @@ impl TryFrom<OutputSql> for DbUnblindedOutput {
             .features_parent_public_key
             .map(|p| PublicKey::from_bytes(&p))
             .transpose()?;
-        features.recovery_byte = o.recovery_byte as u8;
+        features.recovery_byte = u8::try_from(o.recovery_byte).unwrap();
         let unblinded_output = UnblindedOutput::new_current_version(
             MicroTari::from(o.value as u64),
             PrivateKey::from_vec(&o.spending_key).map_err(|_| {

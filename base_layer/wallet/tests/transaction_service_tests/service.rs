@@ -90,13 +90,11 @@ use tari_core::{
 use tari_crypto::{
     commitment::HomomorphicCommitmentFactory,
     common::Blake256,
-    inputs,
     keys::{PublicKey as PK, SecretKey as SK},
-    script,
-    script::{ExecutionStack, TariScript},
 };
 use tari_key_manager::cipher_seed::CipherSeed;
 use tari_p2p::{comms_connector::pubsub_connector, domain_message::DomainMessage, Network};
+use tari_script::{inputs, script, ExecutionStack, TariScript};
 use tari_service_framework::{reply_channel, RegisterHandle, StackBuilder};
 use tari_shutdown::{Shutdown, ShutdownSignal};
 use tari_test_utils::random;
@@ -131,7 +129,7 @@ use tari_wallet::{
     transaction_service::{
         config::TransactionServiceConfig,
         error::TransactionServiceError,
-        handle::{TransactionEvent, TransactionServiceHandle},
+        handle::{TransactionEvent, TransactionSendStatus, TransactionServiceHandle},
         service::TransactionService,
         storage::{
             database::{DbKeyValuePair, TransactionBackend, TransactionDatabase, WriteOperation},
@@ -536,7 +534,7 @@ fn manage_single_transaction() {
 
     let mut bob_event_stream = bob_ts.get_event_stream();
 
-    let _ = runtime.block_on(
+    let _peer_connection = runtime.block_on(
         bob_comms
             .connectivity()
             .dial_peer(alice_node_identity.node_id().clone()),
@@ -927,18 +925,15 @@ fn recover_one_sided_transaction() {
         let outputs = completed_tx.transaction.body.outputs().clone();
 
         let unblinded = bob_oms
-            .scan_outputs_for_one_sided_payments(outputs.clone(), TxId::new_random())
+            .scan_outputs_for_one_sided_payments(outputs.clone())
             .await
             .unwrap();
         // Bob should be able to claim 1 output.
         assert_eq!(1, unblinded.len());
-        assert_eq!(value, unblinded[0].value);
+        assert_eq!(value, unblinded[0].output.value);
 
         // Should ignore already existing outputs
-        let unblinded = bob_oms
-            .scan_outputs_for_one_sided_payments(outputs, TxId::new_random())
-            .await
-            .unwrap();
+        let unblinded = bob_oms.scan_outputs_for_one_sided_payments(outputs).await.unwrap();
         assert!(unblinded.is_empty());
     });
 }
@@ -1136,7 +1131,7 @@ fn send_one_sided_transaction_to_self() {
     let message = "SEE IF YOU CAN CATCH THIS ONE..... SIDED TX!".to_string();
     let value = 1000.into();
     let mut alice_ts_clone = alice_ts;
-    let _tx_id = runtime.block_on(async move {
+    runtime.block_on(async move {
         match alice_ts_clone
             .send_one_sided_transaction(
                 alice_node_identity.public_key().clone(),
@@ -1242,7 +1237,7 @@ fn manage_multiple_transactions() {
     // Connect Bob and Alice
     runtime.block_on(async { sleep(Duration::from_secs(3)).await });
 
-    let _ = runtime.block_on(
+    let _peer_connection = runtime.block_on(
         bob_comms
             .connectivity()
             .dial_peer(alice_node_identity.node_id().clone()),
@@ -1250,7 +1245,7 @@ fn manage_multiple_transactions() {
     runtime.block_on(async { sleep(Duration::from_secs(3)).await });
 
     // Connect alice to carol
-    let _ = runtime.block_on(
+    let _peer_connection = runtime.block_on(
         alice_comms
             .connectivity()
             .dial_peer(carol_node_identity.node_id().clone()),
@@ -1861,9 +1856,9 @@ fn discovery_async_return_test() {
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    if let TransactionEvent::TransactionDirectSendResult(tx_id, result) = (*event.unwrap()).clone() {
+                    if let TransactionEvent::TransactionSendResult(tx_id, status) = (*event.unwrap()).clone() {
                         txid = tx_id;
-                        is_success = result;
+                        is_success = status.direct_send_result;
                         break;
                     }
                 },
@@ -1894,8 +1889,8 @@ fn discovery_async_return_test() {
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    if let TransactionEvent::TransactionDirectSendResult(tx_id, success) = &*event.unwrap() {
-                        success_result = *success;
+                    if let TransactionEvent::TransactionSendResult(tx_id, status) = &*event.unwrap() {
+                        success_result = status.direct_send_result;
                         success_tx_id = *tx_id;
                         break;
                     }
@@ -2040,7 +2035,7 @@ fn test_power_mode_updates() {
     assert!(result.is_ok());
 
     // Wait for first 4 messages
-    let _ = runtime
+    let _schnorr_signatures = runtime
         .block_on(
             alice_ts_interface
                 .base_node_rpc_mock_state
@@ -2052,7 +2047,7 @@ fn test_power_mode_updates() {
         .block_on(alice_ts_interface.transaction_service_handle.set_low_power_mode())
         .unwrap();
     // expect 4 messages more
-    let _ = runtime
+    let _schnorr_signatures = runtime
         .block_on(
             alice_ts_interface
                 .base_node_rpc_mock_state
@@ -2064,7 +2059,7 @@ fn test_power_mode_updates() {
         .block_on(alice_ts_interface.transaction_service_handle.set_normal_power_mode())
         .unwrap();
     // and 4 more
-    let _ = runtime
+    let _schnorr_signatures = runtime
         .block_on(
             alice_ts_interface
                 .base_node_rpc_mock_state
@@ -2167,8 +2162,8 @@ fn test_transaction_cancellation() {
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    if let TransactionEvent::TransactionStoreForwardSendResult(_,_) = &*event.unwrap() {
-                       break;
+                    if let TransactionEvent::TransactionSendResult(_,_) = &*event.unwrap() {
+                        break;
                     }
                 },
                 () = &mut delay => {
@@ -2197,7 +2192,7 @@ fn test_transaction_cancellation() {
         }
     }
 
-    let _ = alice_ts_interface.outbound_service_mock_state.take_calls();
+    let _result = alice_ts_interface.outbound_service_mock_state.take_calls();
 
     runtime
         .block_on(alice_ts_interface.transaction_service_handle.cancel_transaction(tx_id))
@@ -2250,7 +2245,7 @@ fn test_transaction_cancellation() {
     let input = create_unblinded_output(
         TariScript::default(),
         OutputFeatures::default(),
-        TestParamsHelpers::new(),
+        &TestParamsHelpers::new(),
         MicroTari::from(100_000),
     );
 
@@ -2338,7 +2333,7 @@ fn test_transaction_cancellation() {
     let input = create_unblinded_output(
         TariScript::default(),
         OutputFeatures::default(),
-        TestParamsHelpers::new(),
+        &TestParamsHelpers::new(),
         MicroTari::from(100_000),
     );
     let constants = create_consensus_constants(0);
@@ -2568,7 +2563,7 @@ fn test_direct_vs_saf_send_of_tx_reply_and_finalize() {
     let (_, body) = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
 
     let envelope_body = EnvelopeBody::decode(body.to_vec().as_slice()).unwrap();
-    let _: RecipientSignedMessage = envelope_body
+    let _recipient_signed_message: RecipientSignedMessage = envelope_body
         .decode_part::<proto::RecipientSignedMessage>(1)
         .unwrap()
         .unwrap()
@@ -2653,11 +2648,11 @@ fn test_direct_vs_saf_send_of_tx_reply_and_finalize() {
         )
         .unwrap();
 
-    let _ = alice_ts_interface
+    let _size = alice_ts_interface
         .outbound_service_mock_state
         .wait_call_count(2, Duration::from_secs(60));
-    let _ = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
-    let _ = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
+    let _result = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
+    let _result = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
 
     runtime.block_on(async { sleep(Duration::from_secs(5)).await });
     assert_eq!(
@@ -2749,12 +2744,12 @@ fn test_direct_vs_saf_send_of_tx_reply_and_finalize() {
         )
         .unwrap();
 
-    let _ = alice_ts_interface
+    let _size = alice_ts_interface
         .outbound_service_mock_state
         .wait_call_count(1, Duration::from_secs(60));
 
     assert_eq!(alice_ts_interface.outbound_service_mock_state.call_count(), 1);
-    let _ = alice_ts_interface.outbound_service_mock_state.pop_call();
+    let _result = alice_ts_interface.outbound_service_mock_state.pop_call();
     runtime.block_on(async { sleep(Duration::from_secs(5)).await });
     assert_eq!(
         alice_ts_interface.outbound_service_mock_state.call_count(),
@@ -2809,22 +2804,16 @@ fn test_tx_direct_send_behaviour() {
             "Testing Message1".to_string(),
         ))
         .unwrap();
+    let mut transaction_send_status = TransactionSendStatus::default();
 
     runtime.block_on(async {
         let delay = sleep(Duration::from_secs(60));
         tokio::pin!(delay);
-        let mut direct_count = 0;
-        let mut saf_count = 0;
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    match &*event.unwrap() {
-                        TransactionEvent::TransactionDirectSendResult(_, result) => if !result { direct_count+=1 },
-                        TransactionEvent::TransactionStoreForwardSendResult(_, result) => if !result { saf_count+=1},
-                        _ => (),
-                    }
-
-                    if direct_count == 1 && saf_count == 1 {
+                    if let TransactionEvent::TransactionSendResult(_, status) = &*event.unwrap() {
+                        transaction_send_status = status.clone();
                         break;
                     }
                 },
@@ -2833,8 +2822,12 @@ fn test_tx_direct_send_behaviour() {
                 },
             }
         }
-        assert_eq!(direct_count, 1, "Should be 1 failed direct");
-        assert_eq!(saf_count, 1, "Should be 1 failed saf");
+        assert!(!transaction_send_status.direct_send_result, "Should be 1 failed direct");
+        assert!(
+            !transaction_send_status.store_and_forward_send_result,
+            "Should be 1 failed saf"
+        );
+        assert!(transaction_send_status.queued_for_retry, "Should be 1 queued");
     });
 
     alice_ts_interface
@@ -2861,18 +2854,11 @@ fn test_tx_direct_send_behaviour() {
     runtime.block_on(async {
         let delay = sleep(Duration::from_secs(60));
         tokio::pin!(delay);
-        let mut direct_count = 0;
-        let mut saf_count = 0;
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    match &*event.unwrap() {
-                        TransactionEvent::TransactionDirectSendResult(_, result) => if !result { direct_count+=1 },
-                        TransactionEvent::TransactionStoreForwardSendResult(_, result) => if *result { saf_count+=1 },
-                        _ => (),
-                    }
-
-                    if direct_count == 1 && saf_count == 1 {
+                    if let TransactionEvent::TransactionSendResult(_, status) = &*event.unwrap() {
+                        transaction_send_status = status.clone();
                         break;
                     }
                 },
@@ -2881,15 +2867,19 @@ fn test_tx_direct_send_behaviour() {
                 },
             }
         }
-        assert_eq!(direct_count, 1, "Should be 1 failed direct");
-        assert_eq!(saf_count, 1, "Should be 1 succeeded saf");
+        assert!(!transaction_send_status.direct_send_result, "Should be 1 failed direct");
+        assert!(
+            transaction_send_status.store_and_forward_send_result,
+            "Should be 1 succeed saf"
+        );
+        assert!(!transaction_send_status.queued_for_retry, "Should be 0 queued");
     });
 
     alice_ts_interface
         .outbound_service_mock_state
         .set_behaviour(MockBehaviour {
             direct: ResponseType::QueuedSuccessDelay(Duration::from_secs(1)),
-            broadcast: ResponseType::Queued,
+            broadcast: ResponseType::QueuedFail,
         });
 
     let _tx_id = runtime
@@ -2909,17 +2899,11 @@ fn test_tx_direct_send_behaviour() {
     runtime.block_on(async {
         let delay = sleep(Duration::from_secs(60));
         tokio::pin!(delay);
-        let mut direct_count = 0;
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    match &*event.unwrap() {
-                        TransactionEvent::TransactionDirectSendResult(_, result) => if *result { direct_count+=1 },
-                        TransactionEvent::TransactionStoreForwardSendResult(_, _) => panic!("Should be no SAF messages"),
-                        _ => (),
-                    }
-
-                    if direct_count >= 1  {
+                    if let TransactionEvent::TransactionSendResult(_, status) = &*event.unwrap() {
+                        transaction_send_status = status.clone();
                         break;
                     }
                 },
@@ -2928,7 +2912,12 @@ fn test_tx_direct_send_behaviour() {
                 },
             }
         }
-        assert_eq!(direct_count, 1, "Should be 1 succeeded direct");
+        assert!(transaction_send_status.direct_send_result, "Should be 1 succeed direct");
+        assert!(
+            !transaction_send_status.store_and_forward_send_result,
+            "Should be 1 failed saf"
+        );
+        assert!(!transaction_send_status.queued_for_retry, "Should be 0 queued");
     });
 
     alice_ts_interface
@@ -2954,17 +2943,12 @@ fn test_tx_direct_send_behaviour() {
 
     runtime.block_on(async {
         let delay = sleep(Duration::from_secs(60));
-tokio::pin!(delay);
-        let mut saf_count = 0;
+        tokio::pin!(delay);
         loop {
             tokio::select! {
                 event = alice_event_stream.recv() => {
-                    match &*event.unwrap() {
-                        TransactionEvent::TransactionStoreForwardSendResult(_, result) => if *result { saf_count+=1},
-                        TransactionEvent::TransactionDirectSendResult(_, result) => if *result { panic!("Should be no direct messages") },                         _ => (),
-                    }
-
-                    if saf_count >= 1  {
+                    if let TransactionEvent::TransactionSendResult(_, status) = &*event.unwrap() {
+                        transaction_send_status = status.clone();
                         break;
                     }
                 },
@@ -2973,7 +2957,12 @@ tokio::pin!(delay);
                 },
             }
         }
-        assert_eq!(saf_count, 1, "Should be 1 succeeded saf");
+        assert!(!transaction_send_status.direct_send_result, "Should be 1 failed direct");
+        assert!(
+            transaction_send_status.store_and_forward_send_result,
+            "Should be 1 succeed saf"
+        );
+        assert!(!transaction_send_status.queued_for_retry, "Should be 0 queued");
     });
 }
 
@@ -3533,7 +3522,7 @@ fn test_coinbase_generation_and_monitoring() {
     assert_eq!(tx.status, TransactionStatus::MinedUnconfirmed);
 
     // Now we will have tx_id2b becoming confirmed
-    let _ = transaction_query_batch_responses.pop();
+    let _tx_query_batch_responses = transaction_query_batch_responses.pop();
     transaction_query_batch_responses.push(TxQueryBatchResponseProto {
         signature: Some(SignatureProto::from(
             tx2b.transaction.first_kernel_excess_sig().unwrap().clone(),
@@ -4258,12 +4247,12 @@ fn test_transaction_resending() {
         .outbound_service_mock_state
         .wait_call_count(2, Duration::from_secs(60))
         .expect("Bob call wait 2");
-    let _ = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
+    let _result = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     let call = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     bob_reply_message = try_decode_transaction_reply_message(call.1.to_vec()).unwrap();
     assert_eq!(bob_reply_message.tx_id, tx_id);
 
-    let _ = alice_ts_interface.outbound_service_mock_state.take_calls();
+    let _result = alice_ts_interface.outbound_service_mock_state.take_calls();
 
     // Send the reply to Alice
     runtime
@@ -4282,7 +4271,7 @@ fn test_transaction_resending() {
         .wait_call_count(2, Duration::from_secs(60))
         .expect("Alice call wait 2");
 
-    let _ = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
+    let _result = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     let call = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     let alice_finalize_message = try_decode_finalized_transaction_message(call.1.to_vec()).unwrap();
     assert_eq!(alice_finalize_message.tx_id, tx_id.as_u64());
@@ -4341,7 +4330,7 @@ fn test_resend_on_startup() {
     let input = create_unblinded_output(
         script!(Nop),
         OutputFeatures::default(),
-        TestParamsHelpers::new(),
+        &TestParamsHelpers::new(),
         MicroTari::from(100_000),
     );
     let constants = create_consensus_constants(0);
@@ -4723,7 +4712,7 @@ fn test_replying_to_cancelled_tx() {
     // Wait for cooldown to expire
     runtime.block_on(async { sleep(Duration::from_secs(5)).await });
 
-    let _ = alice_ts_interface.outbound_service_mock_state.take_calls();
+    let _result = alice_ts_interface.outbound_service_mock_state.take_calls();
 
     runtime
         .block_on(
@@ -4825,7 +4814,7 @@ fn test_transaction_timeout_cancellation() {
     let input = create_unblinded_output(
         TariScript::default(),
         OutputFeatures::default(),
-        TestParamsHelpers::new(),
+        &TestParamsHelpers::new(),
         MicroTari::from(100_000),
     );
     let constants = create_consensus_constants(0);
@@ -5078,7 +5067,7 @@ fn transaction_service_tx_broadcast() {
         .wait_call_count(2, Duration::from_secs(60))
         .expect("bob call wait 1");
 
-    let _ = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
+    let _result = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     let call = bob_ts_interface.outbound_service_mock_state.pop_call().unwrap();
 
     let envelope_body = EnvelopeBody::decode(&mut call.1.to_vec().as_slice()).unwrap();
@@ -5104,7 +5093,7 @@ fn transaction_service_tx_broadcast() {
         .wait_call_count(2, Duration::from_secs(60))
         .expect("Alice call wait 2");
 
-    let _ = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
+    let _result = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     let call = alice_ts_interface.outbound_service_mock_state.pop_call().unwrap();
     let tx_sender_msg = try_decode_sender_message(call.1.to_vec()).unwrap();
 
@@ -5194,14 +5183,14 @@ fn transaction_service_tx_broadcast() {
 
     assert_eq!(alice_completed_tx1.status, TransactionStatus::Completed);
 
-    let _ = runtime
+    let _transactions = runtime
         .block_on(
             alice_ts_interface
                 .base_node_rpc_mock_state
                 .wait_pop_submit_transaction_calls(1, Duration::from_secs(30)),
         )
         .expect("Should receive a tx submission");
-    let _ = runtime
+    let _schnorr_signatures = runtime
         .block_on(
             alice_ts_interface
                 .base_node_rpc_mock_state
@@ -5305,7 +5294,7 @@ fn transaction_service_tx_broadcast() {
 
     assert_eq!(alice_completed_tx2.status, TransactionStatus::Completed);
 
-    let _ = runtime
+    let _transactions = runtime
         .block_on(
             alice_ts_interface
                 .base_node_rpc_mock_state

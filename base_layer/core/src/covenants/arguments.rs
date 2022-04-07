@@ -27,7 +27,7 @@ use std::{
 
 use integer_encoding::VarIntWriter;
 use tari_common_types::types::{Commitment, PublicKey};
-use tari_crypto::script::TariScript;
+use tari_script::TariScript;
 use tari_utilities::hex::{to_hex, Hex};
 
 use crate::{
@@ -119,7 +119,7 @@ impl CovenantArg {
 
     pub fn write_to<W: io::Write>(&self, writer: &mut W) -> Result<usize, io::Error> {
         use byte_codes::*;
-        use CovenantArg::*;
+        use CovenantArg::{Bytes, Commitment, Covenant, Hash, OutputField, OutputFields, PublicKey, TariScript, Uint};
 
         let mut written = 0;
         match self {
@@ -221,7 +221,7 @@ impl CovenantArg {
 
 impl Display for CovenantArg {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use CovenantArg::*;
+        use CovenantArg::{Bytes, Commitment, Covenant, Hash, OutputField, OutputFields, PublicKey, TariScript, Uint};
         match self {
             Hash(hash) => write!(f, "Hash({})", to_hex(&hash[..])),
             PublicKey(public_key) => write!(f, "PublicKey({})", public_key.to_hex()),
@@ -262,7 +262,7 @@ mod test {
 
     mod write_to {
         use tari_common_types::types::Commitment;
-        use tari_crypto::script;
+        use tari_script::script;
         use tari_utilities::hex::from_hex;
 
         use super::*;

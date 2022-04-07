@@ -1,3 +1,6 @@
+// Copyright 2022 The Tari Project
+// SPDX-License-Identifier: BSD-3-Clause
+
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 use tari_common::{configuration::bootstrap::ApplicationType, ConfigBootstrap, DefaultConfigLoader, NetworkConfigPath};
@@ -55,7 +58,7 @@ fn main() -> anyhow::Result<()> {
     let mut args = Arguments::from_args();
     args.bootstrap.init_dirs(ApplicationType::BaseNode)?;
     println!("CLI arguments:\n");
-    dbg!(&args);
+    println!("{:?}", args);
 
     let mut config = args.bootstrap.load_configuration()?;
 

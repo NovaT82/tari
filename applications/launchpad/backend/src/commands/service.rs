@@ -24,6 +24,7 @@
 use std::{convert::TryFrom, path::PathBuf, time::Duration};
 
 use bollard::Docker;
+use derivative::Derivative;
 use futures::StreamExt;
 use log::*;
 use serde::{Deserialize, Serialize};
@@ -52,11 +53,13 @@ use crate::{
 };
 
 /// "Global" settings from the launcher front-end
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Derivative, Deserialize)]
+#[derivative(Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceSettings {
     pub tari_network: String,
     pub root_folder: String,
+    #[derivative(Debug = "ignore")]
     pub wallet_password: String,
     pub monero_mining_address: Option<String>,
     pub num_mining_threads: i64,
@@ -64,6 +67,7 @@ pub struct ServiceSettings {
     pub docker_tag: Option<String>,
     pub monerod_url: Option<String>,
     pub monero_username: Option<String>,
+    #[derivative(Debug = "ignore")]
     pub monero_password: Option<String>,
     pub monero_use_auth: Option<bool>,
 }
@@ -83,7 +87,7 @@ impl TryFrom<ServiceSettings> for LaunchpadConfig {
         };
         let sha3_miner = Sha3MinerConfig {
             delay: zero_delay,
-            num_mining_threads: settings.num_mining_threads as usize,
+            num_mining_threads: usize::try_from(settings.num_mining_threads).unwrap(),
         };
         let mut mm_proxy = MmProxyConfig {
             delay: zero_delay,
@@ -192,7 +196,7 @@ async fn create_default_workspace_impl(app: AppHandle<Wry>, settings: ServiceSet
     }; // drop read-only lock
     if should_create_workspace {
         let package_info = &state.package_info;
-        let _ = create_workspace_folders(&config.data_directory).map_err(|e| e.chained_message());
+        let _result = create_workspace_folders(&config.data_directory).map_err(|e| e.chained_message());
         copy_config_file(&config.data_directory, app_config.as_ref(), package_info, "log4rs.yml")?;
         copy_config_file(&config.data_directory, app_config.as_ref(), package_info, "config.toml")?;
         // Only get a write-lock if we need one

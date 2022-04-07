@@ -20,15 +20,21 @@
 // WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 // USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::{convert::TryFrom, thread, time::Instant};
+use std::{
+    convert::TryFrom,
+    io::{stdout, Write},
+    thread,
+    time::Instant,
+};
 
 use config::MinerConfig;
+use crossterm::{execute, terminal::SetTitle};
 use errors::{err_empty, MinerError};
 use futures::stream::StreamExt;
 use log::*;
 use miner::Miner;
 use tari_app_grpc::tari_rpc::{base_node_client::BaseNodeClient, wallet_client::WalletClient};
-use tari_app_utilities::initialization::init_configuration;
+use tari_app_utilities::{consts, initialization::init_configuration};
 use tari_common::{
     configuration::bootstrap::ApplicationType,
     exit_codes::{ExitCode, ExitError},
@@ -57,6 +63,10 @@ mod utils;
 /// Application entry point
 fn main() {
     let rt = Runtime::new().expect("Failed to start tokio runtime");
+    let terminal_title = format!("Tari Mining Node - Version {}", consts::APP_VERSION);
+    if let Err(e) = execute!(stdout(), SetTitle(terminal_title.as_str())) {
+        println!("Error setting terminal title. {}", e)
+    }
     match rt.block_on(main_inner()) {
         Ok(_) => std::process::exit(0),
         Err(err) => {
@@ -96,7 +106,7 @@ async fn main_inner() -> Result<(), ExitError> {
         let _ = RistrettoPublicKey::from_hex(&miner_address).map_err(|_| {
             ExitError::new(
                 ExitCode::ConfigError,
-                "Miner is not configured with a valid wallet address.",
+                &"Miner is not configured with a valid wallet address.",
             )
         })?;
         if !config.mining_worker_name.is_empty() {
@@ -116,7 +126,7 @@ async fn main_inner() -> Result<(), ExitError> {
             });
         mc.set_client_tx(cc.tx.clone());
 
-        let _ = thread::Builder::new()
+        let _join_handle = thread::Builder::new()
             .name("client_controller".to_string())
             .spawn(move || {
                 cc.run();
@@ -124,7 +134,7 @@ async fn main_inner() -> Result<(), ExitError> {
 
         mc.run()
             .await
-            .map_err(|err| ExitError::new(ExitCode::UnknownError, format!("Stratum error: {:?}", err)))?;
+            .map_err(|err| ExitError::new(ExitCode::UnknownError, &format!("Stratum error: {:?}", err)))?;
 
         Ok(())
     } else {
@@ -135,7 +145,7 @@ async fn main_inner() -> Result<(), ExitError> {
         );
         let (mut node_conn, mut wallet_conn) = connect(&config)
             .await
-            .map_err(|err| ExitError::new(ExitCode::GrpcError, format!("GRPC connection error: {}", err)))?;
+            .map_err(|err| ExitError::new(ExitCode::GrpcError, &format!("GRPC connection error: {}", err)))?;
 
         let mut blocks_found: u64 = 0;
         loop {

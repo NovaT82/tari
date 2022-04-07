@@ -37,6 +37,7 @@ use std::{
 };
 
 use bytes::Bytes;
+use derivative::Derivative;
 use hyper::{header::HeaderValue, service::Service, Body, Method, Request, Response, StatusCode, Uri};
 use json::json;
 use jsonrpc::error::StandardError;
@@ -62,11 +63,13 @@ pub(crate) const MMPROXY_AUX_KEY_NAME: &str = "_aux";
 /// The identifier used to identify the tari aux chain data
 const TARI_CHAIN_ID: &str = "xtr";
 
-#[derive(Debug, Clone)]
+#[derive(Derivative, Clone)]
+#[derivative(Debug)]
 pub struct MergeMiningProxyConfig {
     pub network: Network,
     pub monerod_url: Vec<String>,
     pub monerod_username: String,
+    #[derivative(Debug = "ignore")]
     pub monerod_password: String,
     pub monerod_use_auth: bool,
     pub grpc_base_node_address: SocketAddr,
@@ -330,16 +333,7 @@ impl InnerService {
             let start = Instant::now();
             match base_node_client.submit_block(block_data.tari_block).await {
                 Ok(resp) => {
-                    if !self.config.proxy_submit_to_origin {
-                        // self-select related, do not change.
-                        json_resp = json_rpc::default_block_accept_response(request["id"].as_i64());
-                        trace!(
-                            target: LOG_TARGET,
-                            "pool merged mining proxy_submit_to_origin({}) json_resp: {}",
-                            self.config.proxy_submit_to_origin,
-                            json_resp
-                        );
-                    } else {
+                    if self.config.proxy_submit_to_origin {
                         json_resp = json_rpc::success_response(
                             request["id"].as_i64(),
                             json!({ "status": "OK", "untrusted": !self.initial_sync_achieved.load(Ordering::Relaxed) }),
@@ -354,6 +348,15 @@ impl InnerService {
                             "Submitted block #{} to Tari node in {:.0?} (SubmitBlock)",
                             height,
                             start.elapsed()
+                        );
+                    } else {
+                        // self-select related, do not change.
+                        json_resp = json_rpc::default_block_accept_response(request["id"].as_i64());
+                        trace!(
+                            target: LOG_TARGET,
+                            "pool merged mining proxy_submit_to_origin({}) json_resp: {}",
+                            self.config.proxy_submit_to_origin,
+                            json_resp
                         );
                     }
                     self.block_templates.remove(&hash).await;
@@ -445,7 +448,16 @@ impl InnerService {
                 .await?
                 .into_inner();
 
-            if !initial_sync_achieved {
+            if initial_sync_achieved {
+                self.initial_sync_achieved.store(true, Ordering::Relaxed);
+                let msg = format!(
+                    "Initial base node sync achieved. Ready to mine at height #{}",
+                    metadata.as_ref().map(|h| h.height_of_longest_chain).unwrap_or_default(),
+                );
+                debug!(target: LOG_TARGET, "{}", msg);
+                println!("{}", msg);
+                println!("Listening on {}...", self.config.proxy_host_address);
+            } else {
                 let msg = format!(
                     "Initial base node sync not achieved, current height at #{} ... (waiting = {})",
                     metadata.as_ref().map(|h| h.height_of_longest_chain).unwrap_or_default(),
@@ -456,15 +468,6 @@ impl InnerService {
                 if self.config.wait_for_initial_sync_at_startup {
                     return Err(MmProxyError::MissingDataError(msg));
                 }
-            } else {
-                self.initial_sync_achieved.store(true, Ordering::Relaxed);
-                let msg = format!(
-                    "Initial base node sync achieved. Ready to mine at height #{}",
-                    metadata.as_ref().map(|h| h.height_of_longest_chain).unwrap_or_default(),
-                );
-                debug!(target: LOG_TARGET, "{}", msg);
-                println!("{}", msg);
-                println!("Listening on {}...", self.config.proxy_host_address);
             }
         }
 

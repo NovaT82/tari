@@ -36,7 +36,6 @@ use tari_utilities::ByteArray;
 use crate::{
     blocks::Block,
     mempool::{
-        consts::{MEMPOOL_UNCONFIRMED_POOL_STORAGE_CAPACITY, MEMPOOL_UNCONFIRMED_POOL_WEIGHT_TRANSACTION_SKIP_COUNT},
         priority::{FeePriority, PrioritizedTransaction},
         unconfirmed_pool::UnconfirmedPoolError,
     },
@@ -63,8 +62,8 @@ pub struct UnconfirmedPoolConfig {
 impl Default for UnconfirmedPoolConfig {
     fn default() -> Self {
         Self {
-            storage_capacity: MEMPOOL_UNCONFIRMED_POOL_STORAGE_CAPACITY,
-            weight_tx_skip_count: MEMPOOL_UNCONFIRMED_POOL_WEIGHT_TRANSACTION_SKIP_COUNT,
+            storage_capacity: 40_000,
+            weight_tx_skip_count: 20,
         }
     }
 }
@@ -168,7 +167,7 @@ impl UnconfirmedPool {
         txs: I,
         transaction_weighting: &TransactionWeight,
     ) -> Result<(), UnconfirmedPoolError> {
-        for tx in txs.into_iter() {
+        for tx in txs {
             self.insert(tx, None, transaction_weighting)?;
         }
         Ok(())
@@ -801,7 +800,7 @@ mod test {
         assert!(snapshot_txs.contains(&tx5));
 
         let published_block = create_orphan_block(0, vec![(*tx1).clone(), (*tx3).clone(), (*tx5).clone()], &consensus);
-        let _ = unconfirmed_pool.remove_published_and_discard_deprecated_transactions(&published_block);
+        let _result = unconfirmed_pool.remove_published_and_discard_deprecated_transactions(&published_block);
 
         assert!(!unconfirmed_pool.has_tx_with_excess_sig(&tx1.body.kernels()[0].excess_sig),);
         assert!(unconfirmed_pool.has_tx_with_excess_sig(&tx2.body.kernels()[0].excess_sig),);
@@ -850,7 +849,7 @@ mod test {
         // The publishing of tx1 and tx3 will be double-spends and orphan tx5 and tx6
         let published_block = create_orphan_block(0, vec![(*tx1).clone(), (*tx2).clone(), (*tx3).clone()], &consensus);
 
-        let _ = unconfirmed_pool.remove_published_and_discard_deprecated_transactions(&published_block); // Double spends are discarded
+        let _result = unconfirmed_pool.remove_published_and_discard_deprecated_transactions(&published_block); // Double spends are discarded
 
         assert!(!unconfirmed_pool.has_tx_with_excess_sig(&tx1.body.kernels()[0].excess_sig));
         assert!(!unconfirmed_pool.has_tx_with_excess_sig(&tx2.body.kernels()[0].excess_sig));

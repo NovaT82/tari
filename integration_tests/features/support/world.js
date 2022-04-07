@@ -1,3 +1,6 @@
+// Copyright 2022 The Tari Project
+// SPDX-License-Identifier: BSD-3-Clause
+
 const {
   setWorldConstructor,
   After,
@@ -6,7 +9,6 @@ const {
 } = require("@cucumber/cucumber");
 
 const BaseNodeProcess = require("../../helpers/baseNodeProcess");
-const StratumTranscoderProcess = require("../../helpers/stratumTranscoderProcess");
 const ValidatorNodeProcess = require("../../helpers/validatorNodeProcess");
 const MergeMiningProxyProcess = require("../../helpers/mergeMiningProxyProcess");
 const WalletProcess = require("../../helpers/walletProcess");
@@ -650,17 +652,6 @@ BeforeAll({ timeout: 2400000 }, async function () {
   console.log("Compiling mmproxy...");
   await mmProxy.init();
   await mmProxy.compile();
-
-  const stratumtranscoder = new StratumTranscoderProcess(
-    "compile",
-    "127.0.0.1:9999",
-    "127.0.0.1:9998",
-    null
-  );
-
-  console.log("Compiling stratum transcoder...");
-  await stratumtranscoder.init();
-  await stratumtranscoder.compile();
 
   const miningNode = new MiningNodeProcess(
     "compile",

@@ -1,5 +1,87 @@
 # Changelog
 
+
+### [0.31.1](https://github.com/tari-project/tari/compare/v0.31.0...v0.31.1) (2022-04-06)
+
+
+### Bug Fixes
+
+* clippy error when not on unix ([#4000](https://github.com/tari-project/tari/issues/4000)) ([7e38259](https://github.com/tari-project/tari/commit/7e382597aa450e642433c3ec3dce5ac77ec09215))
+* fix NodeIdentityHasNoAddress when creating new node identity ([#4002](https://github.com/tari-project/tari/issues/4002)) ([76b526e](https://github.com/tari-project/tari/commit/76b526e22c279d43b3c7d15b12f7c736c4812166))
+
+## [0.31.0](https://github.com/tari-project/tari/compare/v0.30.2...v0.31.0) (2022-04-05)
+
+### Features
+
+* add config setting to resize terminal ([#3920](https://github.com/tari-project/tari/issues/3920)) ([ce697bd](https://github.com/tari-project/tari/commit/ce697bdc68d8d0864b2d8406dd0f79bbd8b9125d))
+* add less aggressive txn cancelling ([#3904](https://github.com/tari-project/tari/issues/3904)) ([40bedde](https://github.com/tari-project/tari/commit/40bedde2053a8e98a2c1a97fc5223be105d0e60e))
+* check file perms on identity files ([#3958](https://github.com/tari-project/tari/issues/3958)) ([7f381d3](https://github.com/tari-project/tari/commit/7f381d3ada56f14472fd4f8b0644a9c5840b6d50))
+* implement qr code for base node ([#3977](https://github.com/tari-project/tari/issues/3977)) ([2f618a2](https://github.com/tari-project/tari/commit/2f618a2560611903e2e87b3d9f93ed6e513dda04))
+* remove spawn blocking calls from wallet db (output manager service) ([#3982](https://github.com/tari-project/tari/issues/3982)) ([cbf75ca](https://github.com/tari-project/tari/commit/cbf75ca762a7affc17b8794ea79679b75626f5d1))
+* update committee from the committee definions TXs ([#3911](https://github.com/tari-project/tari/issues/3911)) ([0b29c89](https://github.com/tari-project/tari/commit/0b29c89442607089f0d985f07395b76175d76e93))
+* **wallet:** send a cancel message to a receiver when it responds to a canceled transaction ([#3976](https://github.com/tari-project/tari/issues/3976)) ([96d24c6](https://github.com/tari-project/tari/commit/96d24c66b534234151974664eb8fcb2e35225386))
+
+
+### Bug Fixes
+
+* another fix for the recovery daily test ([#3978](https://github.com/tari-project/tari/issues/3978)) ([73365a4](https://github.com/tari-project/tari/commit/73365a466e1e14d697f16f5cd9ff8ca51c310d54))
+* estimated hashrate calculation is incorrect ([#3996](https://github.com/tari-project/tari/issues/3996)) ([4587fc0](https://github.com/tari-project/tari/commit/4587fc0e7605359432830ba634f21f18207d3821))
+* recovery daily test reporting of uT was rounding incorrectly ([#3992](https://github.com/tari-project/tari/issues/3992)) ([b5797b7](https://github.com/tari-project/tari/commit/b5797b7db05c95a1401bfbc5d8ba78783037bfec))
+* separate watch loop for the non-interactive mode ([#3979](https://github.com/tari-project/tari/issues/3979)) ([9bf6503](https://github.com/tari-project/tari/commit/9bf6503e750da7c34c64dc39e5bb1d7e3dda763b))
+
+### [0.30.2](https://github.com/tari-project/tari/compare/v0.30.1...v0.30.2) (2022-03-29)
+
+
+### Features
+
+* **core:** add tip height metric ([#3964](https://github.com/tari-project/tari/issues/3964)) ([c3f6b11](https://github.com/tari-project/tari/commit/c3f6b11163e52643796296abb8fcd5e053dae13d))
+
+
+### Bug Fixes
+
+* add output option to the status command ([#3969](https://github.com/tari-project/tari/issues/3969)) ([aabb653](https://github.com/tari-project/tari/commit/aabb6539c8b5920b519b40c85093cd5ad07ae229))
+* revert changes to key manager branch seed strings ([#3971](https://github.com/tari-project/tari/issues/3971)) ([db688aa](https://github.com/tari-project/tari/commit/db688aaeaa53b6a9565867c3791d74ee4c571abf))
+
+### [0.30.1](https://github.com/tari-project/tari/compare/v0.30.0...v0.30.1) (2022-03-28)
+
+
+### Features
+
+* add mmr check to reconstructed block and mempool validation for unique excess signature ([#3930](https://github.com/tari-project/tari/issues/3930)) ([b8f9db5](https://github.com/tari-project/tari/commit/b8f9db50e3bca2e1c4364929cebca1c6a3485956))
+* **dht:** monitor and display warning for min ratio for TCPv4 nodes ([#3953](https://github.com/tari-project/tari/issues/3953)) ([c4070ff](https://github.com/tari-project/tari/commit/c4070ffb1b90ac6f6d37394bfa74b8699f366303))
+* gracefully handle recovering a duplicate output in LibWallet ([#3903](https://github.com/tari-project/tari/issues/3903)) ([bcd1418](https://github.com/tari-project/tari/commit/bcd1418c542c07894ba3d709312f1166bfc34c1b))
+* listen to terminal events in the watch mode ([#3931](https://github.com/tari-project/tari/issues/3931)) ([869abd3](https://github.com/tari-project/tari/commit/869abd3ad1453616c0f1d755611bd9a53ccd8e2f))
+* **metrics:** add UTXO set size to base node metrics ([#3932](https://github.com/tari-project/tari/issues/3932)) ([08ecabc](https://github.com/tari-project/tari/commit/08ecabc4559cb9968232b7b4021994e7d88dff31))
+* script to produce coverage report for wallet ([#3938](https://github.com/tari-project/tari/issues/3938)) ([48eb86e](https://github.com/tari-project/tari/commit/48eb86effaaa5823c5a6ea4589a3c471784f3c38))
+
+
+### Bug Fixes
+
+* **base-node:** disable SAF auto requests ([#3919](https://github.com/tari-project/tari/issues/3919)) ([b34503b](https://github.com/tari-project/tari/commit/b34503b3d9b6fb37d69b76649a090f9d85eedca7))
+* bug in block timing grpc method ([#3926](https://github.com/tari-project/tari/issues/3926)) ([1c7adc0](https://github.com/tari-project/tari/commit/1c7adc0e71c8e03b192b1eab3010941989d207a2))
+* correct main path for wallet rpc client ([#3934](https://github.com/tari-project/tari/issues/3934)) ([b36295c](https://github.com/tari-project/tari/commit/b36295c7c08541f3bed7d38d29bcb95b7c7eeba0))
+* fix ffi import external utxo from faucet ([#3956](https://github.com/tari-project/tari/issues/3956)) ([3480323](https://github.com/tari-project/tari/commit/34803238d04298fb9023f4161a3242c0030ed28f))
+* fix handling of creating faux transaction for recovered outputs ([#3959](https://github.com/tari-project/tari/issues/3959)) ([c5eb9e5](https://github.com/tari-project/tari/commit/c5eb9e5d2a86af12a69338445fb38c3170612b54))
+* fix Tor ID deserialization issue ([#3950](https://github.com/tari-project/tari/issues/3950)) ([c290ab9](https://github.com/tari-project/tari/commit/c290ab974406c5c7d787e2220bcc7d8ea11909a6))
+* launch the watch command on start ([#3924](https://github.com/tari-project/tari/issues/3924)) ([7145201](https://github.com/tari-project/tari/commit/71452013493a9ce87ce8ee20621a08ebe7d03391))
+* **sync:** adds extra checks for sync stream termination ([#3927](https://github.com/tari-project/tari/issues/3927)) ([dd544cb](https://github.com/tari-project/tari/commit/dd544cb9c8907b05d4aea937f247c087c6484de6))
+* **sync:** ban peer if sending invalid prev_header ([#3955](https://github.com/tari-project/tari/issues/3955)) ([384ab0c](https://github.com/tari-project/tari/commit/384ab0ceddd25b5b31722fe639229c0ecf554926))
+* **wallet:** ensure that identity sig is stored on startup ([#3951](https://github.com/tari-project/tari/issues/3951)) ([b8d08ed](https://github.com/tari-project/tari/commit/b8d08ed17c23d74b7309867cafd128c136555f82))
+* **wallet:** tor identity private key needs to be serialized ([#3946](https://github.com/tari-project/tari/issues/3946)) ([a68614e](https://github.com/tari-project/tari/commit/a68614e55313270b8a22a68a4cc802780030cfca))
+
+## [0.30.0](https://github.com/tari-project/tari/compare/v0.29.0...v0.30.0) (2022-03-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* change hash to use consensus encoding (#3820)
+
+### Bug Fixes
+
+* aligned tables left ([#3899](https://github.com/tari-project/tari/issues/3899)) ([1279773](https://github.com/tari-project/tari/commit/127977386d49a4305621009cea98f3d39977fb0a))
+* **consensus:** check blockchain version within valid range ([#3916](https://github.com/tari-project/tari/issues/3916)) ([faf23f3](https://github.com/tari-project/tari/commit/faf23f3ab8c17bea12c06f55f14702da06b9bcc8))
+* change hash to use consensus encoding ([#3820](https://github.com/tari-project/tari/issues/3820)) ([3a2da1d](https://github.com/tari-project/tari/commit/3a2da1d7dbbecb8e3aa4cb3a01496d557b968a59))
+
 ## [0.29.0](https://github.com/tari-project/tari/compare/v0.28.1...v0.29.0) (2022-03-14)
 
 
